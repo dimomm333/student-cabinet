@@ -1,8 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Brand } from "@/components/brand";
 import { Icon } from "@/components/icon";
-import { NewsCards } from "@/components/news-cards";
+import { PublicNews } from "@/components/public-news";
 
 export default function Home() {
   return (
@@ -44,7 +45,9 @@ export default function Home() {
         </section>
         <section id="news" className="public-news page-width">
           <div className="section-heading"><div><span className="eyebrow">ЖИЗНЬ КАМПУСА</span><h2>За пределами расписания</h2></div><span className="muted text-sm">Демонстрационные новости</span></div>
-          <NewsCards />
+          <Suspense fallback={<div className="panel p-6 text-sm muted" role="status">Загружаем новости…</div>}>
+            <PublicNews />
+          </Suspense>
         </section>
         <section className="demo-cta page-width"><div><span className="eyebrow">ДАВАЙ ЗНАКОМИТЬСЯ</span><h2>Твой новый учебный день<br />начинается здесь.</h2><p>Посмотри, как устроен кабинет студента.</p></div><Link href="/dashboard" className="button button-light">Открыть демоверсию <Icon name="arrow" /></Link></section>
       </main>

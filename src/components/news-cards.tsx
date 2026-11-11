@@ -1,10 +1,24 @@
-import { news } from "@/lib/demo-data";
-import { Icon } from "./icon";
+import { Icon, type IconName } from "./icon";
 
-export function NewsCards({ compact = false }: { compact?: boolean }) {
+export type NewsCardItem = {
+  id: string;
+  category: string;
+  date: string;
+  dateTime?: string;
+  title: string;
+  excerpt: string;
+  detail: string;
+  art: string;
+  icon: IconName;
+};
+
+export function NewsCards({ compact = false, items }: {
+  compact?: boolean;
+  items: NewsCardItem[];
+}) {
   return (
     <div className={`news-grid ${compact ? "news-grid-compact" : ""}`}>
-      {news.map((item) => (
+      {items.map((item) => (
         <article className="news-card" key={item.id}>
           <div className={`news-art news-art-${item.art}`} aria-hidden="true">
             <span className="art-orbit orbit-one" />
@@ -13,7 +27,7 @@ export function NewsCards({ compact = false }: { compact?: boolean }) {
             <span className="art-label">СУ / {item.category}</span>
           </div>
           <div className="news-card-body">
-            <div className="news-meta"><span>{item.category}</span><time>{item.date}</time></div>
+            <div className="news-meta"><span>{item.category}</span><time dateTime={item.dateTime}>{item.date}</time></div>
             <h3>{item.title}</h3>
             <p>{item.excerpt}</p>
             <details className="news-details">

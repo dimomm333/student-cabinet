@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon, type IconName } from "@/components/icon";
 import { NewsCards } from "@/components/news-cards";
 import { SchedulePreview } from "@/components/schedule-preview";
-import { notifications } from "@/lib/demo-data";
+import { news, notifications } from "@/lib/demo-data";
 
 const quickLinks: { title: string; caption: string; icon: IconName; href: string }[] = [
   { title: "Учебные материалы", caption: "Всё для подготовки", icon: "folder", href: "materials" },
@@ -126,7 +126,7 @@ export default function Dashboard() {
           </div>
           <Link href="/dashboard/news" className="text-link">Все новости <Icon name="arrow" size={16} /></Link>
         </div>
-        <NewsCards compact />
+        <NewsCards compact items={news} />
       </section>
     </>
   );
