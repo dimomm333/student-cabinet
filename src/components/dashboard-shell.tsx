@@ -6,6 +6,7 @@ import { useRef } from "react";
 import { sections } from "@/lib/demo-data";
 import { Brand } from "./brand";
 import { Icon } from "./icon";
+import { LogoutButton } from "./auth-controls";
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -46,7 +47,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({ children, name }: { children: React.ReactNode; name: string }) {
   const pathname = usePathname();
   const menu = useRef<HTMLDialogElement>(null);
   const currentSection = sections.find((section) => pathname === "/dashboard/" + section.slug);
@@ -86,9 +87,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
           <Brand />
           <Navigation onNavigate={closeMenu} />
-          <Link href="/" onClick={closeMenu} className="nav-item">
-            <Icon name="logout" /> Выйти из деморежима
-          </Link>
+          <LogoutButton className="nav-item role-logout" />
         </div>
       </dialog>
 
@@ -118,13 +117,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             >
               <Icon name="bell" /><span />
             </Link>
-            <Link href="/dashboard/profile" className="header-profile" aria-label="Профиль Александра Смирнова">
-              <span className="avatar">АС</span>
-              <span className="profile-name">Александр С.<small>Студент</small></span>
+            <Link href="/dashboard/profile" className="header-profile" aria-label={`Профиль: ${name}`}>
+              <span className="avatar">{name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("")}</span>
+              <span className="profile-name">{name}<small>Студент</small></span>
             </Link>
-            <Link className="icon-button exit-button" href="/" aria-label="Выйти из деморежима">
-              <Icon name="logout" />
-            </Link>
+            <LogoutButton className="icon-button exit-button" compact />
           </div>
         </header>
         <main id="dashboard-main" className="dashboard-main">{children}</main>

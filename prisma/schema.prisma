@@ -11,15 +11,104 @@ datasource db {
 
 enum Role {
   STUDENT
+  TEACHER
+  TECHNICAL_STAFF
   ADMIN
 }
 
 model User {
+  id                    String                 @id @default(cuid())
+  name                  String
+  email                 String                 @unique
+  emailVerified         Boolean                @default(false)
+  image                 String?
+  role                  Role                   @default(STUDENT)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @default(now()) @updatedAt
+  sessions              Session[]
+  accounts              Account[]
+  studentProfile        StudentProfile?
+  teacherProfile        TeacherProfile?
+  technicalStaffProfile TechnicalStaffProfile?
+}
+
+// Credentials belong to Better Auth's credential Account, never to a profile.
+model Account {
+  id                     String    @id @default(cuid())
+  accountId              String
+  providerId             String
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  password               String?
+  accessToken            String?
+  refreshToken           String?
+  idToken                String?
+  accessTokenExpiresAt   DateTime?
+  refreshTokenExpiresAt  DateTime?
+  scope                  String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Session {
   id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  role      Role     @default(STUDENT)
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model RateLimit {
+  id          String @id @default(cuid())
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+}
+
+model StudentProfile {
+  userId        String  @id
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studentNumber String? @unique
+  institute     String?
+  program       String?
+  groupName     String?
+  course        Int?
+  studyMode     String?
+}
+
+model TeacherProfile {
+  userId     String  @id
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department String?
+  position   String?
+}
+
+model TechnicalStaffProfile {
+  userId     String  @id
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department String?
+  jobTitle   String?
 }
 
 model News {

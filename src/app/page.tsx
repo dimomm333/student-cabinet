@@ -14,7 +14,7 @@ export default function Home() {
         <nav className="public-nav" aria-label="Основная навигация">
           <a href="#possibilities">Возможности</a><a href="#news">Новости</a>
         </nav>
-        <Link className="button button-outline header-login" href="/dashboard">Войти в кабинет <Icon name="arrow" /></Link>
+        <Link className="button button-outline header-login" href="/login">Войти в кабинет <Icon name="arrow" /></Link>
       </header>
       <main id="main">
         <section className="hero page-width">
@@ -22,8 +22,8 @@ export default function Home() {
             <span className="eyebrow"><span className="status-dot" /> Твой университет. Всегда рядом.</span>
             <h1>Всё для учёбы.<br /><span>В одном месте.</span></h1>
             <p className="hero-description">Расписание, результаты, важные новости и университетские сервисы — в твоём личном кабинете. Больше времени на то, что интересно.</p>
-            <Link href="/dashboard" className="button button-primary">Попробовать деморежим <Icon name="arrow" /></Link>
-            <p className="hero-note"><Icon name="shield" /> Без регистрации · На вымышленных данных</p>
+            <Link href="/login" className="button button-primary">Войти в кабинет <Icon name="arrow" /></Link>
+            <p className="hero-note"><Icon name="shield" /> Единый вход · Для студентов и сотрудников</p>
             <div className="hero-footnote"><span className="small-rule" /> Пространство для твоего развития</div>
           </div>
           <div className="hero-visual">
@@ -49,7 +49,7 @@ export default function Home() {
             <PublicNews />
           </Suspense>
         </section>
-        <section className="demo-cta page-width"><div><span className="eyebrow">ДАВАЙ ЗНАКОМИТЬСЯ</span><h2>Твой новый учебный день<br />начинается здесь.</h2><p>Посмотри, как устроен кабинет студента.</p></div><Link href="/dashboard" className="button button-light">Открыть демоверсию <Icon name="arrow" /></Link></section>
+        <section className="demo-cta page-width"><div><span className="eyebrow">ДАВАЙ ЗНАКОМИТЬСЯ</span><h2>Твой новый учебный день<br />начинается здесь.</h2><p>Открой свой университетский кабинет.</p></div><Link href="/login" className="button button-light">Войти в систему <Icon name="arrow" /></Link></section>
       </main>
       <footer className="public-footer page-width"><Brand compact /><p>Конкурсный прототип · Все данные вымышлены</p><span>© 2026 Северный университет</span></footer>
     </div>

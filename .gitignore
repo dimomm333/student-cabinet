@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# Local backups, demo credentials, and verification output
+/.local/
+
 # Local SQLite databases and SQLite journal/WAL sidecars
 *.db
 *.db-*

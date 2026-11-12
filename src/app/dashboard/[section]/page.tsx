@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { sections } from "@/lib/demo-data";
+import { requireRole } from "@/lib/access";
 
 export function generateStaticParams() {
   return sections.map((section) => ({ section: section.slug }));
@@ -14,6 +15,7 @@ export async function generateMetadata({ params }: { params: Promise<{ section: 
 }
 
 export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) {
+  await requireRole("STUDENT");
   const { section: slug } = await params;
   const section = sections.find((item) => item.slug === slug);
   if (!section) notFound();

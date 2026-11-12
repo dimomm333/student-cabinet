@@ -3,6 +3,8 @@ import { Icon, type IconName } from "@/components/icon";
 import { NewsCards } from "@/components/news-cards";
 import { SchedulePreview } from "@/components/schedule-preview";
 import { news, notifications } from "@/lib/demo-data";
+import { requireRole } from "@/lib/access";
+import { prisma } from "@/lib/prisma";
 
 const quickLinks: { title: string; caption: string; icon: IconName; href: string }[] = [
   { title: "Учебные материалы", caption: "Всё для подготовки", icon: "folder", href: "materials" },
@@ -24,13 +26,15 @@ const stats: {
   { href: "session", icon: "book", label: "До зимней сессии", value: "61", unit: "день", note: "Начало — 11 января 2027" },
 ];
 
-export default function Dashboard() {
+export default async function Dashboard() {
+  const user = await requireRole("STUDENT");
+  const profile = await prisma.studentProfile.findUnique({ where: { userId: user.id } });
   return (
     <>
       <div className="dashboard-title">
         <div>
           <span className="eyebrow">СРЕДА, 11 НОЯБРЯ 2026</span>
-          <h1>Привет, Александр <span className="greeting-dot" aria-hidden="true">✳</span></h1>
+          <h1>Привет, {user.name.split(/\s+/)[0]} <span className="greeting-dot" aria-hidden="true">✳</span></h1>
           <p>Новый день — новые возможности. Всё важное уже здесь.</p>
         </div>
         <span className="semester-badge"><Icon name="cap" size={18} /> Осенний семестр</span>
@@ -40,9 +44,9 @@ export default function Dashboard() {
         <div className="student-banner-copy">
           <span className="banner-overline">ТВОЁ МЕСТО В УНИВЕРСИТЕТЕ</span>
           <h2>Учись. Пробуй. Создавай.</h2>
-          <p>Институт цифровых технологий <span>·</span> Прикладная информатика</p>
+          <p>{profile?.institute ?? "Профиль обучения не заполнен"}{profile?.program && <><span>·</span>{profile.program}</>}</p>
           <div className="student-tags">
-            <span>2 курс</span><span>Группа ПИ-24-1</span><span>Очная форма</span>
+            {profile?.course && <span>{profile.course} курс</span>}{profile?.groupName && <span>Группа {profile.groupName}</span>}{profile?.studyMode && <span>{profile.studyMode}</span>}
           </div>
         </div>
         <div className="banner-art" aria-hidden="true">
