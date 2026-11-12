@@ -19,7 +19,9 @@
     "db:seed": "prisma db seed",
     "db:status": "prisma migrate status",
     "auth:setup": "node scripts/setup-auth-env.mjs",
+    "auth:harden-sessions": "node --env-file-if-exists=.env scripts/harden-sessions.mjs",
     "test:auth": "node --env-file-if-exists=.env scripts/verify-auth.mjs",
+    "test:auth:dev": "node --env-file-if-exists=.env scripts/verify-auth-security.mjs --development",
     "db:setup": "npm run db:generate && npm run db:deploy && npm run db:seed"
   },
   "dependencies": {
@@ -31,6 +33,11 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    }
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "4.3.3",

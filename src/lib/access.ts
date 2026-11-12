@@ -6,11 +6,12 @@ import type { Role } from "@/generated/prisma/enums";
 import { auth } from "./auth";
 import { prisma } from "./prisma";
 import { isRole, roleHomes } from "./roles";
+import { isSessionWithinLifetime } from "./session-policy";
 
 // React cache deduplicates within one render only; no cross-request session cache.
 export const getCurrentUser = cache(async () => {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) return null;
+  if (!session || !isSessionWithinLifetime(session.session)) return null;
 
   // Always read the current DB role. A changed role takes effect on the next request.
   return prisma.user.findUnique({
