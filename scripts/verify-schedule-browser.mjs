@@ -8,7 +8,7 @@ import { createClient } from "@libsql/client";
 import { hashPassword } from "better-auth/crypto";
 import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { createPrismaClient } from "../src/lib/prisma-client.ts";
-import { currentAcademicDate, isoDate, mondayOf } from "../src/lib/schedule-calendar.ts";
+import { currentAcademicDate, formatDateInput, isoDate, mondayOf } from "../src/lib/schedule-calendar.ts";
 
 // All credentials, sessions and fixture edits belong to a SQLite copy.
 mkdirSync(".local", { recursive: true });
@@ -35,6 +35,80 @@ const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start
 let serverLog = "", browser;
 child.stdout.on("data", data => { serverLog += data; }); child.stderr.on("data", data => { serverLog += data; });
 function pass(name, details = {}) { results.push({ name, ...details }); console.info(`PASS: ${name} ${JSON.stringify(details)}`); }
+
+async function verifyDatePicker(page, touch = false) {
+  const input = page.locator('.schedule-date-input input');
+  await input.scrollIntoViewIfNeeded();
+  const initialUrl = page.url();
+  await input.fill('');
+  for (const character of '15.12.2026') {
+    await input.pressSequentially(character);
+    assert.equal(page.url(), initialUrl, 'Typing navigated before confirmation');
+  }
+  await expect(input).toHaveValue('15.12.2026');
+  await input.fill('15.12.2026'); await input.press('Enter');
+  await expect(input).toHaveValue('15.12.2026');
+  await expect(input).toBeFocused();
+  await expect(page.locator('.schedule-day-card')).toHaveCount(1);
+  await expect(page.locator('.schedule-days [aria-current=page]')).toContainText('15');
+  assert.equal(new URL(page.url()).searchParams.get('week'), '2026-12-14');
+  assert.equal(new URL(page.url()).searchParams.get('day'), '2');
+  await input.scrollIntoViewIfNeeded();
+  const before = await page.evaluate(() => scrollY);
+  const scrolls = { before };
+  await page.getByRole('button', {name:'Открыть календарь'}).click();
+  const calendar = page.locator('.schedule-calendar');
+  const heading = calendar.locator('strong');
+  await expect(heading).toContainText('декабрь 2026');
+  if (!touch) {
+    await calendar.hover(); await page.mouse.wheel(0,120);
+  } else {
+    await page.getByRole('button', {name:'Следующий месяц',exact:true}).tap();
+  }
+  await expect(heading).toContainText('январь 2027');
+  await expect(calendar.locator('[data-date="2027-01-15"]')).toBeVisible();
+  await page.getByRole('button',{name:'Предыдущий месяц',exact:true}).click();
+  await expect(heading).toContainText('декабрь 2026');
+  await page.getByRole('button',{name:'Предыдущий месяц',exact:true}).click();
+  await expect(heading).toContainText('ноябрь 2026');
+  if (!touch) {
+    await page.waitForTimeout(200); await calendar.hover(); await page.mouse.wheel(0,-120);
+    await expect(heading).toContainText('октябрь 2026');
+    await page.waitForTimeout(200); await page.mouse.wheel(0,120);
+    await expect(heading).toContainText('ноябрь 2026');
+  }
+  await input.press('Escape');
+  scrolls.escape = await page.evaluate(() => scrollY);
+  const url = page.url();
+  for (const value of ['1', '15.12.', '31.02.2027', '29.02.2027', '2027-12-15', '01.01.2100', '']) {
+    await input.fill(value); await input.press('Enter');
+    await expect(input).toHaveValue(value);
+    await expect(input).toHaveAttribute('aria-invalid','true');
+    assert.equal(page.url(), url, 'Invalid input navigated');
+  }
+  await input.fill('29.02.2028'); await input.press('Enter');
+  scrolls.leap = await page.evaluate(() => scrollY);
+  await expect(input).toHaveValue('29.02.2028');
+  await expect(page.locator('.schedule-days [aria-current=page]')).toContainText('29');
+  await page.getByRole('button',{name:'Открыть календарь'}).click();
+  await expect(heading).toContainText('февраль 2028');
+  await expect(calendar.locator('[data-date="2028-02-29"]')).toHaveAttribute('aria-pressed','true');
+  await calendar.locator('[data-date="2028-02-29"]').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(heading).toContainText('март 2028');
+  await expect(calendar.locator('[data-date="2028-03-01"]')).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(input).toHaveValue('01.03.2028');
+  await expect(page.locator('.schedule-days [aria-current=page]')).toContainText('1');
+  scrolls.end = await page.evaluate(() => scrollY);
+  assert(Math.abs(scrolls.end - before) < 3, 'Date picker changed page scroll: ' + JSON.stringify(scrolls));
+  await page.goBack(); await expect(input).toHaveValue('29.02.2028');
+  await page.getByRole('button', {name:'Открыть календарь'}).click();
+  await page.screenshot({ path: resolve(folder, 'calendar-' + (touch ? 'mobile-' : 'desktop-') + new URL(page.url()).pathname.replaceAll('/', '-') + '.png'), fullPage: true });
+  await input.press('Escape');
+  pass('Date picker ' + new URL(page.url()).pathname + (touch ? ' mobile' : ' desktop'), {monthWheel:!touch, yearBoundary:true, invalidDraft:true, leapDay:true, keyboard:true, scheduleSync:true, history:true, stableScroll:true});
+}
+
 try {
   let ready = false;
   for (let n = 0; n < 40; n++) {
@@ -50,6 +124,8 @@ try {
   let scheduleRequests = 0;
   page.on("request", request => { if (new URL(request.url()).pathname === "/schedule") scheduleRequests++; });
   await page.goto(base + "/schedule?group=pi-24-1&week=2026-11-09");
+  await verifyDatePicker(page);
+  await page.goto(base + '/schedule?group=pi-24-1&week=2026-11-09');
   const search = page.getByRole("combobox", { name: "Поиск группы" });
   await expect(search).toBeVisible();
   const documentTime = await page.evaluate(() => performance.timeOrigin);
@@ -81,16 +157,17 @@ try {
   await expect(page.locator(".schedule-day-card")).toHaveCount(1);
   assert(Math.abs(await page.evaluate(() => scrollY) - scrollBefore) < 3, "Day navigation changed scroll position");
   await page.getByRole("link", { name: "Следующая неделя" }).click();
-  await expect(page.getByLabel("Дата учебной недели")).toHaveValue("2026-11-16");
+  await expect(page.getByLabel("Дата учебной недели")).toHaveValue("17.11.2026");
   assert(Math.abs(await page.evaluate(() => scrollY) - scrollBefore) < 3, "Week navigation changed scroll position");
-  await page.goBack(); await expect(page.getByLabel("Дата учебной недели")).toHaveValue("2026-11-09");
-  await page.goForward(); await expect(page.getByLabel("Дата учебной недели")).toHaveValue("2026-11-16");
+  await page.goBack(); await expect(page.getByLabel("Дата учебной недели")).toHaveValue("10.11.2026");
+  await page.goForward(); await expect(page.getByLabel("Дата учебной недели")).toHaveValue("17.11.2026");
   await page.getByLabel("Номер учебной недели").selectOption("demo-autumn-2026:1");
-  await expect(page.getByLabel("Дата учебной недели")).toHaveValue("2026-08-31");
-  await page.getByLabel("Дата учебной недели").fill("2026-11-09");
+  await expect(page.getByLabel("Дата учебной недели")).toHaveValue("01.09.2026");
+  await page.getByLabel("Дата учебной недели").fill("09.11.2026");
+  await page.locator(".schedule-date-input input").press("Enter");
   await expect(page.getByLabel("Номер учебной недели")).toHaveValue("demo-autumn-2026:11");
   await page.getByRole("link", { name: "Текущая неделя", exact: true }).click();
-  await expect(page.getByLabel("Дата учебной недели")).toHaveValue(isoDate(mondayOf(currentAcademicDate())));
+  await expect(page.getByLabel("Дата учебной недели")).toHaveValue(formatDateInput(isoDate(mondayOf(currentAcademicDate()))));
   await expect(page.locator(".schedule-day-today")).toHaveCount(1);
   await page.getByRole("link", { name: "Следующая неделя" }).click();
   await expect(page.locator(".schedule-day-today")).toHaveCount(0);
@@ -108,6 +185,8 @@ try {
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1, timezoneId: "America/Los_Angeles", reducedMotion: "reduce" });
   const phone = await mobile.newPage(); phone.on("pageerror", error => errors.push(error.message));
   await phone.goto(base + "/schedule?week=2026-11-09");
+  await verifyDatePicker(phone, true);
+  await phone.goto(base + '/schedule?group=pi-24-1&week=2026-11-09');
   await phone.getByRole("combobox", { name: "Поиск группы" }).fill("  пи-24-1  ");
   await phone.getByRole("option", { name: "ПИ-24-1" }).tap();
   await expect(phone.locator("#schedule-result-title")).toHaveText("ПИ-24-1");
@@ -118,13 +197,13 @@ try {
   assert(Math.abs(await phone.evaluate(() => scrollY) - mobileScroll) < 3, "Mobile day navigation changed scroll");
   assert(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Mobile horizontal page overflow");
   await phone.getByRole("link", { name: "Следующая неделя" }).tap();
-  await expect(phone.getByLabel("Дата учебной недели")).toHaveValue("2026-11-16");
-  await phone.goBack(); await expect(phone.getByLabel("Дата учебной недели")).toHaveValue("2026-11-09");
+  await expect(phone.getByLabel("Дата учебной недели")).toHaveValue("17.11.2026");
+  await phone.goBack(); await expect(phone.getByLabel("Дата учебной недели")).toHaveValue("10.11.2026");
   await phone.screenshot({ path: resolve(folder, "mobile.png"), fullPage: true });
   pass("Mobile 390px", { touchSearch: true, stableScroll: true, noHorizontalOverflow: true });
 
   for (const [email, home, expected] of [["alexander.smirnov@example.test", "/dashboard", "ПИ-24-1"], ["maria.volkova@example.test", "/dashboard", "ПИ-24-2"], ["mikhail.sokolov@example.test", "/teacher", "Михаил Соколов"]]) {
-    const privateContext = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+    const privateContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
     const privatePage = await privateContext.newPage(); privatePage.on("pageerror", error => errors.push(error.message));
     await privatePage.goto(base + "/login");
     await privatePage.getByLabel(/email/i).fill(email);
@@ -136,6 +215,7 @@ try {
     await expect(privatePage.locator("#schedule-result-title")).toHaveText(expected);
     await expect(privatePage.locator(".public-lesson").first()).toBeVisible();
     assert(await privatePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await verifyDatePicker(privatePage, true);
     await privatePage.screenshot({ path: resolve(folder, home === "/teacher" ? "teacher.png" : expected === "ПИ-24-1" ? "student.png" : "student-other.png"), fullPage: true });
     await privateContext.close();
   }

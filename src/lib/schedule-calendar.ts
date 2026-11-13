@@ -11,6 +11,18 @@ export function parseCalendarDate(value: string): Date | null {
   return Number.isFinite(date.getTime()) && isoDate(date) === value ? date : null;
 }
 
+export function formatDateInput(value: string): string { return value.split("-").reverse().join("."); }
+
+export function parseDateInput(value: string): Date | null {
+  if (!/^\d{2}\.\d{2}\.20\d{2}$/.test(value)) return null;
+  return parseCalendarDate(value.split(".").reverse().join("-"));
+}
+
+export function shiftCalendarMonth(date: Date, offset: number): Date {
+  const month = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + offset, 1));
+  return new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), Math.min(date.getUTCDate(), new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 0)).getUTCDate())));
+}
+
 export function mondayOf(date: Date): Date {
   const result = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   result.setUTCDate(result.getUTCDate() - (result.getUTCDay() + 6) % 7);

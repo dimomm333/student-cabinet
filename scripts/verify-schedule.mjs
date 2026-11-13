@@ -8,7 +8,7 @@ import { hashPassword } from "better-auth/crypto";
 import { createPrismaClient } from "../src/lib/prisma-client.ts";
 import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { getPublicScheduleData, getPersonalScheduleData, groupScope } from "../src/lib/schedule-repository.ts";
-import { academicWeeks, filterScheduleChoices, scheduleHref, currentAcademicDate, isoDate, mondayOf, parseCalendarDate, parseScheduleQuery, weekParity, weekRangeLabel } from "../src/lib/schedule-calendar.ts";
+import { academicWeeks, filterScheduleChoices, scheduleHref, currentAcademicDate, isoDate, mondayOf, parseCalendarDate, parseDateInput, formatDateInput, shiftCalendarMonth, parseScheduleQuery, weekParity, weekRangeLabel } from "../src/lib/schedule-calendar.ts";
 import { demoAccounts } from "../src/lib/demo-accounts.ts";
 
 mkdirSync(".local", { recursive: true });
@@ -97,7 +97,11 @@ try {
   assert.equal(weekParity(new Date("2026-11-16"), new Date("2026-08-31")), "DENOMINATOR");
   assert.equal(weekParity(new Date("2026-08-24"), new Date("2026-08-31")), "DENOMINATOR");
   assert.equal(weekRangeLabel("2026-12-28", "2027-01-03"), "28 декабря 2026 — 3 января 2027");
-  pass("Calendar", { invalidDatesRejected: true, leapYear: true, moscowMidnight: true, negativeWeekParity: true });
+  for (const value of ["", "1", "12.11.", "2026-11-12", "1.11.2026", "31.04.2026", "29.02.2027", "01.01.2100"]) assert.equal(parseDateInput(value), null);
+  assert.equal(isoDate(parseDateInput("29.02.2028")), "2028-02-29");
+  assert.equal(formatDateInput("2026-01-09"), "09.01.2026");
+  for (const [from, offset, expected] of [["2026-12-31", 1, "2027-01-31"], ["2027-01-31", -1, "2026-12-31"], ["2028-01-31", 1, "2028-02-29"], ["2027-03-31", -1, "2027-02-28"]]) assert.equal(isoDate(shiftCalendarMonth(parseCalendarDate(from), offset)), expected);
+  pass("Calendar", { invalidDatesRejected: true, leapYear: true, moscowMidnight: true, negativeWeekParity: true, dateInput: true, monthAndYearTransitions: true });
 
   const weeks = academicWeeks("2026-09-01", "2027-06-30");
   assert.equal(weeks[0].number, 1); assert.equal(weeks[0].start, "2026-08-31");
