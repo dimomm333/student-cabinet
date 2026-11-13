@@ -5,6 +5,7 @@ import { hashPassword } from "better-auth/crypto";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { parse } from "dotenv";
+import { practicalDemoNews, seedSchedule } from "./schedule-seed.ts";
 
 const prisma = createPrismaClient();
 
@@ -22,27 +23,6 @@ function demoPassword(key: string) {
   return password;
 }
 
-const news = [
-  {
-    id: "demo-news-science",
-    title: "Большие идеи начинаются с любопытства",
-    content: "Открываем приём заявок на студенческую научную конференцию «Горизонты».\n\nВ демонстрационной программе — цифровые технологии, городская среда и устойчивое развитие. Конференция пройдёт 25 ноября в учебном корпусе. Это вымышленное событие для знакомства с интерфейсом.",
-    publishedAt: new Date("2026-11-10T09:00:00.000Z"),
-  },
-  {
-    id: "demo-news-community",
-    title: "Найди тех, кто разделяет твои интересы",
-    content: "Неделя студенческих объединений: от дебатного клуба до творческой мастерской.\n\nНа демонстрационной неделе объединений можно познакомиться с клубами, найти команду для проекта и попробовать новое хобби. Все объединения и события в прототипе вымышлены.",
-    publishedAt: new Date("2026-11-09T09:00:00.000Z"),
-  },
-  {
-    id: "demo-news-library",
-    title: "Новое место для твоих открытий",
-    content: "В библиотеке кампуса появилось пространство для совместной работы.\n\nВ вымышленной библиотеке оборудованы тихая зона, переговорные и места для работы над командными проектами. Новость создана только для демонстрации кабинета.",
-    publishedAt: new Date("2026-11-07T09:00:00.000Z"),
-  },
-];
-
 async function main() {
   const prepared: { identity: { name: string; email: string; role: Role }; password: string | null }[] = [];
   for (const { passwordEnv, ...identity } of demoAccounts) {
@@ -56,7 +36,7 @@ async function main() {
     prepared.push({ identity, password: account?.password ? null : await hashPassword(demoPassword(passwordEnv)) });
   }
 
-  // No cleanup or password reset: repeat runs preserve names, roles, hashes and news.
+  // No cleanup or password reset. Only the three managed demo news are refreshed.
   await prisma.$transaction(async (tx) => {
     for (const { identity, password } of prepared) {
       const user = await tx.user.upsert({ where: { email: identity.email }, update: {}, create: identity });
@@ -80,7 +60,8 @@ async function main() {
         await tx.technicalStaffProfile.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id, department: "Служба эксплуатации кампуса", jobTitle: "Инженер" } });
       }
     }
-    for (const item of news) await tx.news.upsert({ where: { id: item.id }, update: {}, create: item });
+    for (const item of practicalDemoNews) await tx.news.upsert({ where: { id: item.id }, update: item, create: item });
+    await seedSchedule(tx);
   });
 
   const [userCount, newsCount] = await Promise.all([
@@ -88,7 +69,7 @@ async function main() {
     prisma.news.count(),
   ]);
   console.info(`База заполнена. Пользователей: ${userCount}; новостей: ${newsCount}.`);
-  console.info("Пароли заданы через DEMO_*_PASSWORD или сохранены только в игнорируемом .env.demo.local. Существующие хеши не изменены.");
+  console.info("Пароли заданы через DEMO_*_PASSWORD или сохранены только в игнорируемом .env.demo.local. Существующие хеши не изменены. Дополнительные преподаватели расписания не имеют паролей для входа.");
 }
 
 main()

@@ -6,6 +6,6 @@ export async function getLatestNews() {
     where: { publishedAt: { lte: new Date() } },
     orderBy: [{ publishedAt: "desc" }, { id: "asc" }],
     take: 3,
-    select: { id: true, title: true, content: true, publishedAt: true },
+    select: { id: true, title: true, content: true, publishedAt: true, category: true, isDemo: true },
   });
 }

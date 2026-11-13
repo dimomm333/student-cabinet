@@ -5,6 +5,8 @@ import { SchedulePreview } from "@/components/schedule-preview";
 import { news, notifications } from "@/lib/demo-data";
 import { requireRole } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
+import { getStudentScheduleOverview } from "@/lib/schedule";
+import { lessonCountLabel } from "@/lib/schedule-calendar";
 
 const quickLinks: { title: string; caption: string; icon: IconName; href: string }[] = [
   { title: "Учебные материалы", caption: "Всё для подготовки", icon: "folder", href: "materials" },
@@ -28,7 +30,9 @@ const stats: {
 
 export default async function Dashboard() {
   const user = await requireRole("STUDENT");
-  const profile = await prisma.studentProfile.findUnique({ where: { userId: user.id } });
+  const profile = await prisma.studentProfile.findUnique({ where: { userId: user.id }, include: { group: { select: { code: true } } } });
+  const overview = await getStudentScheduleOverview();
+  const liveStats = stats.map(stat => stat.href === "schedule" ? { ...stat, value: String(overview.todayCount), unit: lessonCountLabel(overview.todayCount).split(" ")[1], note: !overview.linked ? "Группа пока не привязана" : overview.todayFirst ? `Первая пара в ${overview.todayFirst}` : "Сегодня занятий нет" } : stat);
   return (
     <>
       <div className="dashboard-title">
@@ -46,7 +50,7 @@ export default async function Dashboard() {
           <h2>Учись. Пробуй. Создавай.</h2>
           <p>{profile?.institute ?? "Профиль обучения не заполнен"}{profile?.program && <><span>·</span>{profile.program}</>}</p>
           <div className="student-tags">
-            {profile?.course && <span>{profile.course} курс</span>}{profile?.groupName && <span>Группа {profile.groupName}</span>}{profile?.studyMode && <span>{profile.studyMode}</span>}
+            {profile?.course && <span>{profile.course} курс</span>}{(profile?.group?.code || profile?.groupName) && <span>Группа {profile?.group?.code ?? profile?.groupName}</span>}{profile?.studyMode && <span>{profile.studyMode}</span>}
           </div>
         </div>
         <div className="banner-art" aria-hidden="true">
@@ -60,7 +64,7 @@ export default async function Dashboard() {
       </section>
 
       <div className="stat-grid">
-        {stats.map((stat) => (
+        {liveStats.map((stat) => (
           <Link href={"/dashboard/" + stat.href} className="stat-card" key={stat.href}>
             <span className="stat-label"><Icon name={stat.icon} size={18} /> {stat.label}</span>
             <div>
@@ -74,7 +78,7 @@ export default async function Dashboard() {
 
       <div className="dashboard-columns">
         <div className="dashboard-primary">
-          <SchedulePreview />
+          <SchedulePreview overview={overview} />
           <section className="quick-links" aria-labelledby="quick-title">
             <h2 id="quick-title">Быстрый доступ</h2>
             <div className="quick-grid">

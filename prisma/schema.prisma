@@ -34,20 +34,20 @@ model User {
 
 // Credentials belong to Better Auth's credential Account, never to a profile.
 model Account {
-  id                     String    @id @default(cuid())
-  accountId              String
-  providerId             String
-  userId                 String
-  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  password               String?
-  accessToken            String?
-  refreshToken           String?
-  idToken                String?
-  accessTokenExpiresAt   DateTime?
-  refreshTokenExpiresAt  DateTime?
-  scope                  String?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  password              String?
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@unique([providerId, accountId])
   @@index([userId])
@@ -87,21 +87,29 @@ model RateLimit {
 }
 
 model StudentProfile {
-  userId        String  @id
-  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  studentNumber String? @unique
+  userId        String      @id
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studentNumber String?     @unique
   institute     String?
   program       String?
   groupName     String?
   course        Int?
   studyMode     String?
+  groupId       String?
+  group         StudyGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
+  @@index([groupId])
 }
 
 model TeacherProfile {
-  userId     String  @id
-  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  department String?
-  position   String?
+  userId           String          @id
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department       String?
+  position         String?
+  scheduleSlug     String?         @unique
+  publicName       String?
+  isSchedulePublic Boolean         @default(false)
+  lessons          LessonTeacher[]
 }
 
 model TechnicalStaffProfile {
@@ -116,6 +124,147 @@ model News {
   title       String
   content     String
   publishedAt DateTime @default(now())
+  category    String   @default("Объявления")
+  isDemo      Boolean  @default(false)
 
   @@index([publishedAt])
+}
+
+enum LessonKind {
+  LECTURE
+  PRACTICE
+  SEMINAR
+  LAB
+}
+
+enum WeekPattern {
+  EVERY
+  NUMERATOR
+  DENOMINATOR
+}
+
+model StudyGroup {
+  id        String           @id @default(cuid())
+  slug      String           @unique
+  code      String           @unique
+  programme String
+  course    Int
+  isPublic  Boolean          @default(false)
+  students  StudentProfile[]
+  lessons   LessonGroup[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  departmentId String?
+  department AcademicDepartment? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  parentId String?
+  parent StudyGroup? @relation("Subgroups", fields: [parentId], references: [id], onDelete: SetNull)
+  subgroups StudyGroup[] @relation("Subgroups")
+
+  @@index([departmentId])
+  @@index([parentId])
+}
+
+// Faculty is a category of departments; no separate faculty entity is needed yet.
+model AcademicDepartment {
+  id String @id @default(cuid())
+  faculty String
+  name String
+  groups StudyGroup[]
+
+  @@unique([faculty, name])
+}
+
+model Discipline {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  title     String
+  lessons   Lesson[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Building {
+  id       String  @id @default(cuid())
+  code     String  @unique
+  name     String
+  isPublic Boolean @default(false)
+  rooms    Room[]
+}
+
+model Room {
+  id         String          @id @default(cuid())
+  buildingId String
+  building   Building        @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  number     String
+  isPublic   Boolean         @default(false)
+  entries    ScheduleEntry[]
+
+  @@unique([buildingId, number])
+}
+
+// Dates are date-only values represented at UTC midnight. Local timetable times
+// are minutes after midnight in the term's time zone, never browser-local times.
+model AcademicTerm {
+  id                   String          @id @default(cuid())
+  code                 String          @unique
+  name                 String
+  startsOn             DateTime
+  endsOn               DateTime
+  firstNumeratorMonday DateTime
+  timeZone             String          @default("Europe/Moscow")
+  isPublished          Boolean         @default(false)
+  entries              ScheduleEntry[]
+}
+
+model Lesson {
+  id           String          @id @default(cuid())
+  disciplineId String
+  discipline   Discipline      @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  kind         LessonKind
+  groups       LessonGroup[]
+  teachers     LessonTeacher[]
+  entries      ScheduleEntry[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model LessonGroup {
+  lessonId String
+  groupId  String
+  lesson   Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  group    StudyGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@id([lessonId, groupId])
+  @@index([groupId])
+}
+
+model LessonTeacher {
+  lessonId  String
+  teacherId String
+  lesson    Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  teacher   TeacherProfile @relation(fields: [teacherId], references: [userId], onDelete: Restrict)
+
+  @@id([lessonId, teacherId])
+  @@index([teacherId])
+}
+
+model ScheduleEntry {
+  id          String       @id @default(cuid())
+  lessonId    String
+  lesson      Lesson       @relation(fields: [lessonId], references: [id], onDelete: Restrict)
+  termId      String
+  term        AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  roomId      String
+  room        Room         @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  dayOfWeek   Int
+  startMinute Int
+  endMinute   Int
+  weekPattern WeekPattern  @default(EVERY)
+  isPublished Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([termId, isPublished, dayOfWeek, startMinute])
+  @@index([lessonId])
+  @@index([roomId])
 }

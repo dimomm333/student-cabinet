@@ -52,8 +52,11 @@ async function resetLimits() { assert(isolatedURL.includes("/.local/auth-securit
 
 async function stopServer() {
   if (child && child.exitCode === null) {
-    if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-    else child.kill("SIGTERM");
+    // Terminate our own handle first. Sandbox policies can block taskkill even
+    // though the Node child process belongs to this test, leaving npm hanging.
+    child.kill("SIGTERM");
+    for (let n = 0; n < 20 && child.exitCode === null && child.signalCode === null; n++) await sleep(50);
+    if (child.exitCode === null && child.signalCode === null && process.platform === "win32") spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
   }
   child = undefined;
 }
@@ -184,7 +187,9 @@ try {
 
     for (const rememberMe of [false, true, undefined]) {
       const signed = await login(actors[1], { rememberMe, createdAt: "2099-01-01T00:00:00Z", expiresAt: "2099-01-02T00:00:00Z" });
-      assert.equal((new Date(signed.session.expiresAt) - new Date(signed.session.createdAt)) / 3600000, 8);
+      const lifetime = new Date(signed.session.expiresAt) - new Date(signed.session.createdAt);
+      // Separate clock reads can differ by milliseconds. Never accept > 8 hours.
+      assert(lifetime <= 8 * 3600000 && lifetime >= 8 * 3600000 - 1000);
       const now = Date.now();
       await db.session.update({ where: { id: signed.session.id }, data: { createdAt: new Date(now - 7 * 3600000), expiresAt: new Date(now + 20 * 3600000) } });
       const capped = await request("/api/auth/get-session", { cookie: signed.cookie });
@@ -222,7 +227,8 @@ try {
     const trusted = await login(actors[0], {}, { "x-lks-client-ip": "192.0.2.20", "x-forwarded-for": "203.0.113.99", "x-lks-verified-ip": "203.0.113.98" });
     assert.equal(trusted.session.ipAddress, "192.0.2.20");
     assert(trusted.headers.getSetCookie().some(c => /;\s*secure/i.test(c) && /httponly/i.test(c) && /samesite=lax/i.test(c)));
-    assert.equal((new Date(trusted.session.expiresAt) - new Date(trusted.session.createdAt)) / 3600000, 8); await logout(trusted);
+    const trustedLifetime = new Date(trusted.session.expiresAt) - new Date(trusted.session.createdAt);
+    assert(trustedLifetime <= 8 * 3600000 && trustedLifetime >= 8 * 3600000 - 1000); await logout(trusted);
     log("Trusted proxy and HTTPS cookie issuance", { invalidProxyCredential: 403, trustedClientIPUsed: true, forwardedHeadersIgnored: true, secure: true, tlsTransport: "not tested" });
     const require = createRequire(import.meta.url), estreeRequire = createRequire(require.resolve("@typescript-eslint/typescript-estree"));
     const { minimatch } = estreeRequire("minimatch"); assert.equal(estreeRequire("minimatch/package.json").version, "11.0.1");

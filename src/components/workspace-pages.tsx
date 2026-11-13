@@ -25,8 +25,8 @@ export async function WorkspaceHome({ role }: { role: WorkspaceRole }) {
   const workspace = workspaces[role];
   return <>
     <div className="dashboard-title"><div><span className="eyebrow">{roleLabels[role]}</span><h1>{workspace.title}</h1><p>Здравствуйте, {user.name}. {workspace.description}</p></div></div>
-    <section className="panel workspace-welcome"><span className="icon-tile"><Icon name="shield" /></span><div><h2>Ваше рабочее пространство</h2><p>Вход и разграничение доступа уже работают. Выберите раздел, чтобы познакомиться со структурой кабинета. Рабочие модули появятся на следующих этапах.</p></div></section>
-    <div className="workspace-grid">{workspace.sections.map((item) => <Link key={item.slug} href={`${roleHomes[role]}/${item.slug}`} className="panel workspace-card"><span className="icon-tile"><Icon name={item.icon} /></span><h2>{item.title}</h2><p>{item.description}</p><span className="workspace-status">В разработке <Icon name="arrow" size={16} /></span></Link>)}</div>
+    <section className="panel workspace-welcome"><span className="icon-tile"><Icon name="shield" /></span><div><h2>Ваше рабочее пространство</h2><p>{role === "TEACHER" ? "Расписание ваших занятий доступно в разделе «Моё расписание». Остальные разделы находятся в разработке." : "Вход и разграничение доступа уже работают. Выберите раздел, чтобы познакомиться со структурой кабинета. Рабочие модули появятся на следующих этапах."}</p></div></section>
+    <div className="workspace-grid">{workspace.sections.map((item) => <Link key={item.slug} href={`${roleHomes[role]}/${item.slug}`} className="panel workspace-card"><span className="icon-tile"><Icon name={item.icon} /></span><h2>{item.title}</h2><p>{item.description}</p><span className="workspace-status">{role === "TEACHER" && item.slug === "schedule" ? "Открыть расписание" : "В разработке"} <Icon name="arrow" size={16} /></span></Link>)}</div>
   </>;
 }
 

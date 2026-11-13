@@ -9,7 +9,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
     title: "Кабинет преподавателя",
     description: "Пространство для преподавания и взаимодействия со студентами.",
     sections: [
-      { slug: "schedule", title: "Расписание", icon: "calendar", description: "Здесь появится расписание занятий преподавателя." },
+      { slug: "schedule", title: "Расписание", icon: "calendar", description: "Ваши занятия по всем группам, время, аудитории и корпуса." },
       { slug: "disciplines", title: "Дисциплины и группы", icon: "book", description: "Здесь будут закреплённые дисциплины и учебные группы." },
       { slug: "students", title: "Студенты", icon: "user", description: "Здесь появятся студенты закреплённых учебных групп." },
       { slug: "grades", title: "Журнал оценок", icon: "chart", description: "Здесь будет журнал оценок и посещаемости." },

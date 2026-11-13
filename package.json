@@ -21,6 +21,9 @@
     "auth:setup": "node scripts/setup-auth-env.mjs",
     "auth:harden-sessions": "node --env-file-if-exists=.env scripts/harden-sessions.mjs",
     "test:auth": "node --env-file-if-exists=.env scripts/verify-auth.mjs",
+    "test:auth:navigation": "node --env-file-if-exists=.env scripts/verify-cabinet-navigation.mjs",
+    "test:schedule:browser": "node --env-file-if-exists=.env scripts/verify-schedule-browser.mjs",
+    "test": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-schedule.mjs",
     "test:auth:dev": "node --env-file-if-exists=.env scripts/verify-auth-security.mjs --development",
     "db:setup": "npm run db:generate && npm run db:deploy && npm run db:seed"
   },
@@ -40,6 +43,7 @@
     }
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
