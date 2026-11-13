@@ -6,6 +6,7 @@ import { roleHomes, roleLabels } from "@/lib/roles";
 import { workspaces, type WorkspaceRole } from "@/lib/workspaces";
 import { WorkspaceShell } from "./workspace-shell";
 import { Icon } from "./icon";
+import CabinetPageLoading from "./cabinet-page-loading";
 
 export function ProtectedLoading() {
   return <main className="not-found" role="status">Проверяем доступ к кабинету…</main>;
@@ -30,7 +31,15 @@ export async function WorkspaceHome({ role }: { role: WorkspaceRole }) {
   </>;
 }
 
-export async function WorkspaceSection({ role, params }: { role: WorkspaceRole; params: Promise<{ section: string }> }) {
+type WorkspaceSectionProps = { role: WorkspaceRole; params: Promise<{ section: string }> };
+
+export function WorkspaceSection(props: WorkspaceSectionProps) {
+  // The dynamic params read needs a boundary inside the page as well, including
+  // the first visit to a previously unrendered section under a shared layout.
+  return <Suspense fallback={<CabinetPageLoading />}><WorkspaceSectionContent {...props} /></Suspense>;
+}
+
+async function WorkspaceSectionContent({ role, params }: WorkspaceSectionProps) {
   await requireRole(role);
   const { section: slug } = await params;
   const section = workspaces[role].sections.find((item) => item.slug === slug);

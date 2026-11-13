@@ -4,7 +4,7 @@ import { DAY_MS, dayNames, isoDate, minuteLabel, filterScheduleChoices, weekPari
 
 export type PublicChoice = { slug: string; name: string };
 export type GroupChoice = PublicChoice & { programme: string; faculty: string | null; department: string | null; parentSlug: string | null };
-export type PublicLesson = { key: string; date: string; start: string; end: string; discipline: string; kind: string; weekPattern: string; teachers: PublicChoice[]; groups: PublicChoice[]; room: string; building: string; timeZone: string };
+export type PublicLesson = { key: string; date: string; start: string; end: string; discipline: string; kind: string; kindCode: "LECTURE" | "PRACTICE" | "SEMINAR" | "LAB"; weekPattern: string; weekPatternCode: "EVERY" | "NUMERATOR" | "DENOMINATOR"; termCode: string; teachers: PublicChoice[]; groups: PublicChoice[]; room: string; building: string; timeZone: string };
 
 const publishedEntry = {
   isPublished: true,
@@ -21,13 +21,18 @@ const patternNames = { EVERY: "Каждую неделю", NUMERATOR: "Числ�
 
 // Only this module reads schedule data for application routes. No User, Account,
 // Session, student list, email or other private fields enter the public projection.
-export async function getPublicScheduleData(prisma: PrismaClient, query: ScheduleQuery) {
+export async function getPublicScheduleCatalog(prisma: PrismaClient, take?: number) {
   const [rawGroups, rawTeachers] = await Promise.all([
-    prisma.studyGroup.findMany({ where: { isPublic: true }, select: { slug: true, code: true, programme: true, department: { select: { name: true, faculty: true } }, parent: { select: { slug: true, isPublic: true } } }, orderBy: { code: "asc" } }),
-    prisma.teacherProfile.findMany({ where: { isSchedulePublic: true, scheduleSlug: { not: null }, publicName: { not: null } }, select: { scheduleSlug: true, publicName: true }, orderBy: { publicName: "asc" } }),
+    prisma.studyGroup.findMany({ take, where: { isPublic: true }, select: { slug: true, code: true, programme: true, department: { select: { name: true, faculty: true } }, parent: { select: { slug: true, isPublic: true } } }, orderBy: [{ code: "asc" }, { slug: "asc" }] }),
+    prisma.teacherProfile.findMany({ take, where: { isSchedulePublic: true, scheduleSlug: { not: null }, publicName: { not: null } }, select: { scheduleSlug: true, publicName: true }, orderBy: [{ publicName: "asc" }, { scheduleSlug: "asc" }] }),
   ]);
   const allGroups: GroupChoice[] = rawGroups.map(g => ({ slug: g.slug, name: g.code, programme: g.programme, faculty: g.department?.faculty ?? null, department: g.department?.name ?? null, parentSlug: g.parent?.isPublic ? g.parent.slug : null }));
   const allTeachers = rawTeachers.map(t => ({ slug: t.scheduleSlug!, name: t.publicName! }));
+  return { allGroups, allTeachers };
+}
+
+export async function getPublicScheduleData(prisma: PrismaClient, query: ScheduleQuery, catalog?: Awaited<ReturnType<typeof getPublicScheduleCatalog>>) {
+  const { allGroups, allTeachers } = catalog ?? await getPublicScheduleCatalog(prisma);
   const choices = filterScheduleChoices(query.view === "group" ? allGroups : allTeachers, query.q);
   const selected = query.selected ? (query.view === "group" ? allGroups : allTeachers).find(item => item.slug === query.selected) ?? null : choices[0] ?? null;
   const selector: Prisma.ScheduleEntryWhereInput | null = !selected ? null : query.view === "group"
@@ -81,7 +86,7 @@ async function readSchedule(prisma: PrismaClient, query: ScheduleQuery, selected
       orderBy: [{ dayOfWeek: "asc" }, { startMinute: "asc" }, { id: "asc" }], take: 301,
       select: {
         dayOfWeek: true, startMinute: true, endMinute: true, weekPattern: true,
-        term: { select: { startsOn: true, endsOn: true, firstNumeratorMonday: true, timeZone: true } },
+        term: { select: { code: true, startsOn: true, endsOn: true, firstNumeratorMonday: true, timeZone: true } },
         room: { select: { number: true, building: { select: { name: true } } } },
         lesson: { select: {
           kind: true, discipline: { select: { title: true } },
@@ -97,13 +102,13 @@ async function readSchedule(prisma: PrismaClient, query: ScheduleQuery, selected
       const date = new Date(day.date + "T00:00:00Z");
       if (date < entry.term.startsOn || date > entry.term.endsOn) continue;
       if (entry.weekPattern !== "EVERY" && entry.weekPattern !== weekParity(query.week, entry.term.firstNumeratorMonday)) continue;
-      day.lessons.push({ key: `${day.date}-${index}`, date: day.date, start: minuteLabel(entry.startMinute), end: minuteLabel(entry.endMinute), discipline: entry.lesson.discipline.title, kind: kindNames[entry.lesson.kind], weekPattern: patternNames[entry.weekPattern], teachers: entry.lesson.teachers.map(t => ({ slug: t.teacher.scheduleSlug!, name: t.teacher.publicName! })), groups: entry.lesson.groups.map(g => ({ slug: g.group.slug, name: g.group.code })), room: entry.room.number, building: entry.room.building.name, timeZone: entry.term.timeZone });
+      day.lessons.push({ key: `${day.date}-${index}`, date: day.date, start: minuteLabel(entry.startMinute), end: minuteLabel(entry.endMinute), discipline: entry.lesson.discipline.title, kind: kindNames[entry.lesson.kind], kindCode: entry.lesson.kind, weekPattern: patternNames[entry.weekPattern], weekPatternCode: entry.weekPattern, termCode: entry.term.code, teachers: entry.lesson.teachers.map(t => ({ slug: t.teacher.scheduleSlug!, name: t.teacher.publicName! })), groups: entry.lesson.groups.map(g => ({ slug: g.group.slug, name: g.group.code })), room: entry.room.number, building: entry.room.building.name, timeZone: entry.term.timeZone });
     }
   }
   const terms = await prisma.academicTerm.findMany({ where: { isPublished: true, ...(selector ? { entries: { some: { AND: [publicOnly ? publishedEntry : { isPublished: true }, selector] } } } : {}) }, orderBy: [{ startsOn: "asc" }, { code: "asc" }], select: { code: true, name: true, startsOn: true, endsOn: true, firstNumeratorMonday: true } });
   const activeTerms = terms.filter(term => term.startsOn <= end && term.endsOn >= query.week);
   const parities = [...new Set(activeTerms.map(term => patternNames[weekParity(query.week, term.firstNumeratorMonday)]))];
-  return { selected, days, weekStart: isoDate(query.week), weekEnd: isoDate(end), termCode: activeTerms.find(t => t.code === query.term)?.code ?? activeTerms[0]?.code ?? "", terms: terms.map(t => ({ code: t.code, name: t.name, startsOn: isoDate(t.startsOn), endsOn: isoDate(t.endsOn) })), parity: parities.length === 1 ? parities[0] : parities.length ? "Разные учебные календари" : "Вне опубликованного учебного периода", truncated };
+  return { selected, days, weekStart: isoDate(query.week), weekEnd: isoDate(end), termCode: activeTerms.find(t => t.code === query.term)?.code ?? activeTerms[0]?.code ?? "", terms: terms.map(t => ({ code: t.code, name: t.name, startsOn: isoDate(t.startsOn), endsOn: isoDate(t.endsOn), firstNumeratorMonday: isoDate(t.firstNumeratorMonday) })), parity: parities.length === 1 ? parities[0] : parities.length ? "Разные учебные календари" : "Вне опубликованного учебного периода", truncated };
 }
 
 export type ScheduleModel = Awaited<ReturnType<typeof readSchedule>>;

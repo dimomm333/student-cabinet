@@ -21,6 +21,7 @@
     "auth:setup": "node scripts/setup-auth-env.mjs",
     "auth:harden-sessions": "node --env-file-if-exists=.env scripts/harden-sessions.mjs",
     "test:auth": "node --env-file-if-exists=.env scripts/verify-auth.mjs",
+    "test:api": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-schedule-api.mjs",
     "test:auth:navigation": "node --env-file-if-exists=.env scripts/verify-cabinet-navigation.mjs",
     "test:schedule:browser": "node --env-file-if-exists=.env scripts/verify-schedule-browser.mjs",
     "test": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-schedule.mjs",
