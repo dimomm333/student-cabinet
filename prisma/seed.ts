@@ -7,6 +7,7 @@ import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { parse } from "dotenv";
 import { practicalDemoNews, seedSchedule } from "./schedule-seed.ts";
 import { seedDemoScheduleLinks } from "./schedule-demo-links.ts";
+import { seedStudentPhotoDemo } from "./student-photo-demo.ts";
 
 const prisma = createPrismaClient();
 const deaneryOnly = process.argv.includes("--deanery-only");
@@ -27,7 +28,12 @@ function demoPassword(key: string) {
 }
 
 async function main() {
-  const prepared: { identity: { name: string; email: string; role: Role }; password: string | null }[] = [];
+  if (process.argv.includes("--student-profile-demo-only")) {
+    await seedStudentPhotoDemo(prisma);
+    console.info("Демонстрационные иллюстрации добавлены. Личные данные, пароли и расписание не изменены.");
+    return;
+  }
+  const prepared: { identity: { name: string; email: string; role: Role }; password: string | null; newUser: boolean }[] = [];
   for (const { passwordEnv, ...identity } of demoAccounts) {
     if (scheduleLinksOnly) continue;
     if (deaneryOnly && identity.role !== Role.DEANERY_STAFF) continue;
@@ -38,12 +44,12 @@ async function main() {
     const account = existing && await prisma.account.findUnique({
       where: { providerId_accountId: { providerId: "credential", accountId: existing.id } },
     });
-    prepared.push({ identity, password: account?.password ? null : await hashPassword(demoPassword(passwordEnv)) });
+    prepared.push({ identity, password: account?.password ? null : await hashPassword(demoPassword(passwordEnv)), newUser: !existing });
   }
 
   // No cleanup or password reset. Only the three managed demo news are refreshed.
   await prisma.$transaction(async (tx) => {
-    for (const { identity, password } of prepared) {
+    for (const { identity, password, newUser } of prepared) {
       const user = await tx.user.upsert({ where: { email: identity.email }, update: {}, create: identity });
       if (password) {
         await tx.account.upsert({
@@ -53,10 +59,10 @@ async function main() {
         });
       }
       if (user.role === Role.STUDENT) {
-        const defaults = { institute: "Институт цифровых технологий", program: "Прикладная информатика", groupName: "ПИ-24-1", course: 2, studyMode: "Очная форма" };
-        const profile = await tx.studentProfile.findUnique({ where: { userId: user.id } });
-        const missing = Object.fromEntries(Object.entries(defaults).filter(([key]) => profile?.[key as keyof typeof defaults] == null));
-        await tx.studentProfile.upsert({ where: { userId: user.id }, update: missing, create: { userId: user.id, ...defaults } });
+        const defaults = newUser ? { institute: "Институт цифровых технологий", program: "Прикладная информатика", groupName: "ПИ-24-1", course: 2, studyMode: "Очная форма" } : {};
+        // Defaults apply only to a newly created demo profile. Missing official
+        // fields in an existing record are not an invitation to invent data.
+        await tx.studentProfile.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id, ...defaults } });
       }
       if (user.role === Role.TEACHER) {
         await tx.teacherProfile.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id, department: "Кафедра информатики", position: "Старший преподаватель" } });

@@ -15,7 +15,7 @@ function ProfileFields({ title, fields }: { title: string; fields: Field[] }) {
   })}</dl></section>;
 }
 
-async function ProfileContent({ role }: { role: Role }) {
+async function ProfileContent({ role }: { role: Exclude<Role, "STUDENT"> }) {
   const actor = await requireRole(role);
   // Ownership and current role are checked next to the read. No client ID,
   // account credentials or session fields enter this projection.
@@ -25,15 +25,10 @@ async function ProfileContent({ role }: { role: Role }) {
       name: true, email: true, role: true, emailVerified: true, createdAt: true,
     },
   });
-  const student = role === "STUDENT" ? await prisma.studentProfile.findUnique({ where: { userId: actor.id }, select: { studentNumber: true, institute: true, program: true, course: true, studyMode: true, groupName: true, group: { select: { code: true } } } }) : null;
   const teacher = role === "TEACHER" ? await prisma.teacherProfile.findUnique({ where: { userId: actor.id }, select: { department: true, position: true, publicName: true, isSchedulePublic: true } }) : null;
   const staff = role === "TECHNICAL_STAFF" ? await prisma.technicalStaffProfile.findUnique({ where: { userId: actor.id }, select: { department: true, jobTitle: true } }) : null;
   const deanery = role === "DEANERY_STAFF" ? await prisma.deaneryStaffProfile.findUnique({ where: { userId: actor.id }, select: { position: true, departments: { select: { department: { select: { faculty: true, name: true } } }, orderBy: { department: { name: "asc" } } } } }) : null;
-  const details: Field[] = role === "STUDENT" ? [
-    ["Номер студенческого билета", student?.studentNumber], ["Институт", student?.institute],
-    ["Образовательная программа", student?.program], ["Учебная группа", student?.group?.code ?? student?.groupName],
-    ["Курс", student?.course], ["Форма обучения", student?.studyMode],
-  ] : role === "TEACHER" ? [
+  const details: Field[] = role === "TEACHER" ? [
     ["Кафедра", teacher?.department], ["Должность", teacher?.position], ["Имя в публичном расписании", teacher?.publicName],
     ["Публикация в расписании", teacher ? teacher.isSchedulePublic ? "Включена" : "Отключена" : null],
   ] : role === "TECHNICAL_STAFF" ? [["Подразделение", staff?.department], ["Должность", staff?.jobTitle]] : role === "DEANERY_STAFF" ? [
@@ -47,13 +42,13 @@ async function ProfileContent({ role }: { role: Role }) {
         ["Подтверждение почты", user.emailVerified ? "Подтверждена" : "Не подтверждена"],
         ["Дата регистрации", new Intl.DateTimeFormat("ru-RU", { dateStyle: "long", timeZone: "Europe/Moscow" }).format(user.createdAt)],
       ]} />
-      {!!details.length && <ProfileFields title={role === "STUDENT" ? "Обучение" : "Работа в университете"} fields={details} />}
+      {!!details.length && <ProfileFields title="Работа в университете" fields={details} />}
     </div>
     <p className="profile-note">Профиль доступен только для просмотра. Для уточнения данных обратитесь к ответственному сотруднику университета.</p>
     <Link href={roleHomes[role]} className="button button-primary">На главную кабинета</Link>
   </>;
 }
 
-export function UserProfile({ role }: { role: Role }) {
+export function UserProfile({ role }: { role: Exclude<Role, "STUDENT"> }) {
   return <Suspense fallback={<CabinetPageLoading />}><ProfileContent role={role} /></Suspense>;
 }

@@ -11,6 +11,7 @@ import { getPublicScheduleData, getPersonalScheduleData, groupScope } from "../s
 import { academicWeeks, filterScheduleChoices, scheduleHref, currentAcademicDate, isoDate, mondayOf, parseCalendarDate, parseDateInput, formatDateInput, shiftCalendarMonth, parseScheduleQuery, weekParity, weekRangeLabel } from "../src/lib/schedule-calendar.ts";
 import { demoAccounts } from "../src/lib/demo-accounts.ts";
 import { roleHomes } from "../src/lib/roles.ts";
+import { provisionTestDatabase } from "./test-fixtures.mjs";
 
 mkdirSync(".local", { recursive: true });
 const root = mkdtempSync(resolve(".local/schedule-test-"));
@@ -25,8 +26,8 @@ async function snapshot(client) {
 }
 const baseline = await snapshot(source);
 await source.execute({ sql: "VACUUM INTO ?", args: [resolve(root, "test.db")] });
-const copy = createClient({ url: databaseURL });
-const env = { ...process.env, DATABASE_URL: databaseURL };
+let copy = createClient({ url: databaseURL });
+let env = { ...process.env, DATABASE_URL: databaseURL };
 const results = [];
 function pass(name, evidence) { results.push({ name, ...evidence }); console.info(`PASS: ${name} ${JSON.stringify(evidence)}`); }
 function run(args) {
@@ -61,13 +62,16 @@ try {
 } finally { legacy.close(); }
 run(["node_modules/prisma/build/index.js", "migrate", "deploy"]);
 checkExisting(baseline, await snapshot(copy));
-run(["--env-file-if-exists=.env", "prisma/seed.ts"]);
-checkExisting(baseline, await snapshot(copy), true);
 assert.equal((await copy.execute("PRAGMA integrity_check")).rows[0].integrity_check, "ok");
 assert.equal((await copy.execute("PRAGMA foreign_key_check")).rows.length, 0);
 pass("Migration and original identities/sessions", { preserved: true, activeSessionFixturePreserved: true, integrity: "ok" });
-process.env.DATABASE_URL = databaseURL;
+copy.close();
+env = provisionTestDatabase(resolve(root, 'fixture.db'));
+copy = createClient({ url: env.DATABASE_URL });
+process.env.DATABASE_URL = env.DATABASE_URL;
 const db = createPrismaClient();
+// Missing official values in existing demo records must stay missing on reseed.
+await db.studentProfile.updateMany({ data: { institute: null, citizenship: null } });
 const allTables = [...tableNames, "StudyGroup", "Discipline", "Building", "Room", "AcademicTerm", "Lesson", "LessonGroup", "LessonTeacher", "ScheduleEntry"];
 async function seedFingerprint() {
   const values = [];
@@ -76,7 +80,7 @@ async function seedFingerprint() {
 }
 const seeded = await seedFingerprint(); run(["--env-file-if-exists=.env", "prisma/seed.ts"]);
 assert.equal(await seedFingerprint(), seeded);
-assert.equal(await db.news.count(), baseline.News.length);
+assert.equal(await db.news.count(), 3);
 assert.equal(await db.scheduleEntry.count(), 12);
 pass("Seed idempotence", { entries: 12, groups: 3, publicTeachers: 3, duplicateNews: false });
 

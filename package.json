@@ -7,6 +7,9 @@
     "node": "^22.18.0 || ^24.0.0 || ^26.0.0"
   },
   "scripts": {
+    "db:student-profile": "node --env-file-if-exists=.env scripts/prepare-student-profile.mjs --apply",
+    "db:student-photo": "node --env-file-if-exists=.env scripts/set-student-photo.mjs",
+    "test:student-photo": "node scripts/verify-student-photo.mjs",
     "test:schedule:bells": "node scripts/verify-schedule-bells.mjs",
     "test:schedule:editor": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-schedule-editor.mjs",
     "db:schedule-editor": "node --env-file-if-exists=.env scripts/prepare-schedule-editor.mjs --apply",
@@ -41,7 +44,8 @@
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "sharp": "0.35.5"
   },
   "overrides": {
     "@typescript-eslint/typescript-estree": {

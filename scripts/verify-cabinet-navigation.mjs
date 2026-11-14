@@ -3,6 +3,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { chromium, expect } from "@playwright/test";
 import { createClient } from "@libsql/client";
 import { hashPassword } from "better-auth/crypto";
@@ -10,6 +11,8 @@ import { createPrismaClient } from "../src/lib/prisma-client.ts";
 import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { demoAccounts } from "../src/lib/demo-accounts.ts";
 import { roleLabels, roleHomes as homes } from "../src/lib/roles.ts";
+import { provisionTestDatabase } from "./test-fixtures.mjs";
+import { verifyStudentProfile } from "./student-profile-checks.mjs";
 
 const observe = process.argv.includes("--observe"), production = process.argv.includes("--production");
 mkdirSync(".local", { recursive: true });
@@ -22,8 +25,7 @@ async function fingerprint() {
   return createHash("sha256").update(JSON.stringify(rows, (_, v) => typeof v === "bigint" ? String(v) : v)).digest("hex");
 }
 const before = await fingerprint();
-await source.execute({ sql: "VACUUM INTO ?", args: [resolve(root, "test.db")] });
-process.env.DATABASE_URL = `file:${resolve(root, "test.db").replaceAll("\\", "/")}`;
+process.env.DATABASE_URL = provisionTestDatabase(resolve(root, "test.db")).DATABASE_URL;
 const db = createPrismaClient(), password = randomBytes(24).toString("base64url");
 await db.account.updateMany({ where: { providerId: "credential" }, data: { password: await hashPassword(password) } });
 // Keep the user's running next dev and its build cache untouched as well.
@@ -31,10 +33,21 @@ if (!production) {
   mkdirSync(project);
   for (const folder of ["src", "public"]) cpSync(folder, resolve(project, folder), { recursive: true });
   for (const file of ["package.json", "package-lock.json", "tsconfig.json", "AGENTS.md", ".gitignore"]) cpSync(file, resolve(project, file));
-  writeFileSync(resolve(project, "next.config.ts"), readFileSync("next.config.ts", "utf8").replace("turbopack: {", `turbopack: { root: ${JSON.stringify(resolve(".").replaceAll("\\", "/"))},`));
+  writeFileSync(resolve(project, "next.config.ts"), readFileSync("next.config.ts", "utf8")
+    .replace("turbopack: {", `turbopack: { root: ${JSON.stringify(resolve(".").replaceAll("\\", "/"))},`)
+    // The loader defaults to the parent process cwd, which includes old test
+    // projects. Class candidates belong solely to this isolated source tree.
+    .replace('loaders: ["@tailwindcss/turbopack"]', `loaders: [{ loader: "@tailwindcss/turbopack", options: { base: ${JSON.stringify(resolve(project,'src').replaceAll('\\','/'))} } }]`));
   symlinkSync(resolve("node_modules"), resolve(project, "node_modules"), process.platform === "win32" ? "junction" : "dir");
 }
-const port = process.env.CABINET_TEST_PORT ?? "3210";
+async function availablePort() {
+  const server=createServer();
+  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+  const port=server.address().port;
+  await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));
+  return String(port);
+}
+const port = process.env.CABINET_TEST_PORT ?? await availablePort();
 const base = `http://127.0.0.1:${port}`, results = [], diagnostics = [], browserErrors = [];
 let logs = "", browser;
 const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", production ? "start" : "dev", production ? resolve(".") : project, "--hostname", "127.0.0.1", "--port", port], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, NODE_ENV: production ? "production" : "development", NEXT_TELEMETRY_DISABLED: "1", BETTER_AUTH_URL: base, BETTER_AUTH_SECRET: randomBytes(48).toString("base64url"), AUTH_TRUST_PROXY: "false", AUTH_PROXY_SECRET: "" } });
@@ -56,6 +69,10 @@ async function verifyProfile(page, context, actor, home) {
   await page.waitForURL(base + home + '/profile'); await settle(page);
   await expect(page.locator('main h1:visible')).toHaveText('Профиль');
   await expect(page.locator('.desktop-sidebar a[aria-current=page]')).toHaveAttribute('href', home + '/profile');
+  if (actor.role === 'STUDENT') {
+    await verifyStudentProfile({page,context,db,user,foreign,base,settle,field,password});
+  } else {
+  assert.equal((await context.request.get(base+'/api/student/profile/photo')).status(),403);
   await expect(field('Имя и фамилия')).toHaveText(user.name);
   await expect(field('Электронная почта')).toHaveText(user.email);
   await expect(field('Роль')).toHaveText(roleLabels[user.role]);
@@ -63,7 +80,6 @@ async function verifyProfile(page, context, actor, home) {
   await expect(field('Дата регистрации')).toHaveText(new Intl.DateTimeFormat('ru-RU', {dateStyle:'long', timeZone:'Europe/Moscow'}).format(user.createdAt));
   assert.equal(await page.locator('.user-profile input, .user-profile select, .user-profile button').count(), 0);
   const projections = {
-    STUDENT: ['studentProfile', 'Институт', 'institute'],
     TEACHER: ['teacherProfile', 'Кафедра', 'department'],
     TECHNICAL_STAFF: ['technicalStaffProfile', 'Подразделение', 'department'],
   };
@@ -77,11 +93,7 @@ async function verifyProfile(page, context, actor, home) {
     const [table, label, property] = projection;
     const profile = await db[table].findUnique({ where: { userId: user.id } });
     await expect(field(label)).toHaveText(profile?.[property]?.trim() ? profile[property] : 'Не заполнено');
-    const expected = actor.role === 'STUDENT' ? [
-      ['Номер студенческого билета', profile?.studentNumber], ['Образовательная программа', profile?.program],
-      ['Курс', profile?.course], ['Форма обучения', profile?.studyMode],
-      ['Учебная группа', (profile?.groupId ? await db.studyGroup.findUnique({where:{id:profile.groupId}}) : null)?.code ?? profile?.groupName],
-    ] : actor.role === 'TEACHER' ? [
+    const expected = actor.role === 'TEACHER' ? [
       ['Должность', profile?.position], ['Имя в публичном расписании', profile?.publicName],
       ['Публикация в расписании', profile ? profile.isSchedulePublic ? 'Включена' : 'Отключена' : null],
     ] : [['Должность', profile?.jobTitle]];
@@ -103,15 +115,17 @@ async function verifyProfile(page, context, actor, home) {
       }
     }
   }
+  }
   await page.goto(base + home + '/profile?userId=' + foreign.id + '&id=' + foreign.id + '&email=' + foreign.email);
   await settle(page);
-  await expect(field('Электронная почта')).toHaveText(user.email);
+  await expect(field(actor.role === 'STUDENT' ? 'Университетская электронная почта' : 'Электронная почта')).toHaveText(user.email);
   assert(!(await page.locator('.user-profile').innerText()).includes(foreign.email), 'Foreign profile disclosed');
   await page.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}-profile.png`), fullPage: true });
-  const mobile = await browser.newContext({ storageState: await context.storageState(), viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const mobile = await browser.newContext({ storageState: await context.storageState(), viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true });
   const phone = await mobile.newPage();
   phone.setDefaultNavigationTimeout(120000);
   phone.on('pageerror', error => browserErrors.push(error.message));
+  phone.on('console', message => { if(warningPattern.test(message.text()))diagnostics.push({url:phone.url(),type:message.type(),message:message.text()}); });
   await phone.goto(base + home); await settle(phone);
   await phone.locator('.header-profile').tap(); await phone.waitForURL(base + home + '/profile'); await settle(phone);
   await expect(phone.locator('.user-profile')).toContainText(user.email);
@@ -123,18 +137,28 @@ async function verifyProfile(page, context, actor, home) {
   await phone.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}-profile-mobile.png`), fullPage: true });
   await mobile.close();
   await page.goto(base + home); await settle(page);
-  pass(`${actor.role}: profile links and ownership`, { avatar: true, menu: true, mobile: true, realDatabaseFields: true, missingFields: !!projection, spoofedOwnerIgnored: true, readOnly: true });
+  pass(`${actor.role}: profile links and ownership`, { avatar: true, menu: true, mobile: true, realDatabaseFields: true, missingFields: actor.role !== 'ADMIN', spoofedOwnerIgnored: true, readOnly: true });
 }
 try {
   let ready = false;
   for (let n = 0; n < 80; n++) {
+    assert(child.exitCode===null,'Isolated navigation server exited; see private server.log');
     try { if ((await fetch(base + "/api/auth/get-session", { signal: AbortSignal.timeout(10000) })).ok) { ready = true; break; } } catch { /* compilation */ }
     await new Promise(done => setTimeout(done, 250));
   }
   assert(ready, "Isolated navigation server unavailable");
+  if (!production) {
+    const started=performance.now();
+    const response=await fetch(base+'/dashboard/profile',{redirect:'manual',signal:AbortSignal.timeout(120000)});
+    // Streaming HTML can carry the redirect, so verify the full response too.
+    const body=await response.text();
+    assert(response.status===307 || (response.status===200 && body.includes('/login')),'Cold profile request failed');
+    pass('Cold profile compilation',{milliseconds:Math.round(performance.now()-started),status:response.status});
+  }
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome", headless: true });
   const anonymous = await browser.newContext();
   const anonymousPage = await anonymous.newPage();
+  assert.equal((await anonymous.request.get(base+'/api/student/profile/photo')).status(),401);
   anonymousPage.setDefaultNavigationTimeout(120000);
   for (const home of Object.values(homes)) { await anonymousPage.goto(base + home + '/profile'); await anonymousPage.waitForURL(base + '/login'); }
   await anonymous.close();
@@ -172,6 +196,7 @@ try {
       const user = await db.user.findUniqueOrThrow({ where: { email: actor.email } });
       const newRole = actor.role === "ADMIN" ? "TEACHER" : "ADMIN";
       await db.user.update({ where: { id: user.id }, data: { role: newRole } });
+      assert.equal((await context.request.get(base+'/api/student/profile/photo')).status(),403);
       await page.goto(base + home + '/profile'); await page.waitForURL(base + homes[newRole]); await settle(page);
       await page.goto(base + home); await page.waitForURL(base + homes[newRole]); await settle(page);
       await db.user.update({ where: { id: user.id }, data: { role: actor.role } });

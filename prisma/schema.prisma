@@ -100,8 +100,52 @@ model StudentProfile {
   studyMode     String?
   groupId       String?
   group         StudyGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  lastName      String?
+  firstName     String?
+  middleName    String?
+  gender        StudentGender?
+  citizenship   String?
+  contactPhone  String?
+  educationLevel String?
+  fundingBasis  String?
+  enrolledAt    DateTime?
+  expectedGraduationYear Int?
+  educationStatus EducationStatus?
+  personalFileNumber String?
+  residenceStatus ResidenceStatus?
+  dormitory     String?
+  dormitoryRoom String?
+  officialPhoto StudentOfficialPhoto?
 
   @@index([groupId])
+}
+
+enum StudentGender {
+  MALE
+  FEMALE
+}
+
+// Null is unknown, never an assumed active enrolment.
+enum EducationStatus {
+  STUDYING
+  ACADEMIC_LEAVE
+  EXPELLED
+  GRADUATED
+  TRANSFERRED
+}
+
+enum ResidenceStatus {
+  RESIDENT
+  NON_RESIDENT
+}
+
+// Private binary data, outside public/ and Better Auth's user.image.
+model StudentOfficialPhoto {
+  userId String @id
+  student StudentProfile @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  content Bytes
+  mimeType String
+  updatedAt DateTime @default(now()) @updatedAt
 }
 
 model TeacherProfile {

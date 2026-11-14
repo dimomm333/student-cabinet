@@ -33,6 +33,7 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
         <span className="demo-badge">Скоро в кабинете</span>
         <h2>Здесь будет раздел «{section.title}»</h2>
         <p>{section.description}</p>
+        {slug === "services" && <p>Услуга «Изменение данных в ЛКС» пока недоступна. В будущем изменение официальных данных потребует проверки заявки сотрудником деканата. Отправка заявок ещё не реализована.</p>}
         <div className="placeholder-note">
           <Icon name="help" size={18} />
           <p>Сейчас доступна визуальная демоверсия. Этот раздел будет реализован на следующих этапах. Все данные в кабинете вымышлены.</p>
