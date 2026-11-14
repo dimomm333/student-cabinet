@@ -1,3 +1,4 @@
+import { bellGrids, identifyPair } from '../src/lib/schedule-bells.ts';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -65,6 +66,12 @@ try{
   assert.equal(active(await getPersonalScheduleData(db,parseScheduleQuery({week:'2026-11-09'}),{id:student.id,role:'STUDENT'})).length,1);
   await db.teacherProfile.update({where:{userId:otherTeacher.userId},data:{isSchedulePublic:true}});
   await save({operation:'RESTORE',entryId,exceptionId:privateChange.objectId,version:(await current(entryId)).version,confirmed:true});
+
+  const gridA=await save({...base,operation:'EXTRA',date:'2026-11-11',start:'12:25',end:'13:55'});
+  await assert.rejects(()=>save({...base,operation:'EXTRA',date:'2026-11-11',start:'11:50',end:'13:20'}),ScheduleEditError);
+  assert.equal(identifyPair(active(await read()).find(l=>l.start==='12:25').start,'13:55').number,3);
+  await save({operation:'RESTORE',exceptionId:gridA.objectId,version:1,confirmed:true});
+  pass('Different bell grids still conflict on real intervals');
   const extra=await save({...base,operation:'EXTRA',date:'2026-11-11',groupIds:[group.id,group2.id],teacherIds:[teacher.userId,otherTeacher.userId],start:'15:00',end:'16:00'});
   assert.equal((await read()).days[2].lessons.length,1);assert.equal((await read()).days[2].lessons[0].teachers.length,2);
   await assert.rejects(async()=>save({...base,operation:'EXTRA',date:'2026-11-11',groupIds:[group2.id],roomId:otherRoom.id,start:'15:30',end:'16:30'}),/Преподаватель занят/);
@@ -117,7 +124,29 @@ try{
   const dialog=page.getByRole('dialog',{name:'Редактор занятия'});
   const addTrigger=page.getByRole('button',{name:'Добавить регулярную пару',exact:true});
   await addTrigger.focus();await page.keyboard.press('Enter');await expect(dialog).toBeVisible();await page.keyboard.press('Escape');await expect(dialog).toBeHidden();await expect(addTrigger).toBeFocused();
-  async function fillRegular(p,teacherName=teacher.publicName){const d=p.getByRole('dialog',{name:'Редактор занятия'});await d.getByLabel(teacherName,{exact:true}).check();await d.getByRole('combobox',{name:'Дисциплина',exact:true}).selectOption({label:discipline.title});await d.getByRole('combobox',{name:'Корпус и аудитория',exact:true}).selectOption(room.id);await d.getByRole('combobox',{name:'Учебный период',exact:true}).selectOption(term.id);await d.getByLabel('Начало',{exact:true}).fill('18:00');await d.getByLabel('Окончание',{exact:true}).fill('19:00');}
+
+  await addTrigger.click();
+  const timeMode=dialog.locator('select').filter({has:page.locator('option[value=custom]')});
+  const gridSelect=dialog.locator('select').filter({has:page.locator('option[value=A]')});
+  const pairSelect=dialog.locator('select[id$="-pair"]');
+  for(const grid of bellGrids){
+    await gridSelect.selectOption(grid.id);
+    for(const pair of grid.pairs){
+      await pairSelect.selectOption(String(pair.number));
+      await expect(dialog.locator('input[name=start]')).toHaveValue(pair.start);
+      await expect(dialog.locator('input[name=end]')).toHaveValue(pair.end);
+      await expect(dialog.locator('input[name=start]')).toHaveAttribute('readonly','');
+    }
+  }
+  await timeMode.selectOption('custom');
+  await dialog.locator('input[name=start]').fill('09:17');
+  await dialog.locator('input[name=end]').fill('10:43');
+  await timeMode.selectOption('standard');await timeMode.selectOption('custom');
+  await expect(dialog.locator('input[name=start]')).toHaveValue('09:17');
+  await expect(dialog.locator('input[name=end]')).toHaveValue('10:43');
+  await page.keyboard.press('Escape');
+  pass('Bell editor presets and preserved manual draft',{allFourteen:true});
+  async function fillRegular(p,teacherName=teacher.publicName){const d=p.getByRole('dialog',{name:'Редактор занятия'});await d.getByLabel(teacherName,{exact:true}).check();await d.getByRole('combobox',{name:'Дисциплина',exact:true}).selectOption({label:discipline.title});await d.getByRole('combobox',{name:'Корпус и аудитория',exact:true}).selectOption(room.id);await d.getByRole('combobox',{name:'Учебный период',exact:true}).selectOption(term.id);await d.locator('select').filter({has:p.locator('option[value=custom]')}).selectOption('custom');await d.getByLabel('Начало',{exact:true}).fill('18:00');await d.getByLabel('Окончание',{exact:true}).fill('19:00');}
   async function submit(p,confirm=false){const d=p.getByRole('dialog',{name:'Редактор занятия'});if(confirm)await d.getByLabel('Подтверждаю действие').check();await d.getByRole('button',{name:confirm?'Подтвердить':'Сохранить занятие',exact:true}).click();await expect(d.locator('.editor-success')).toContainText('сохранен');await d.getByRole('button',{name:'Закрыть форму',exact:true}).click();await expect(d).toBeHidden();}
   const api=()=>context.request.get(baseUrl+'/api/v1/schedule?group='+group.slug+'&week=2026-11-09');
   await api(); // Warm cache before a write; the next request must see the new revision.
@@ -129,7 +158,7 @@ try{
   await submit(page);
   let uiPair=page.locator('.editor-pair').filter({has:page.locator('h4',{hasText:discipline.title})});await expect(uiPair).toHaveCount(1);
   let data=await(await api()).json();assert.equal(data.data.days[1].lessons[0].discipline,discipline.title);
-  await uiPair.getByRole('button',{name:'Создать разовую замену',exact:true}).click();await dialog.getByLabel(teacher.publicName,{exact:true}).uncheck();await dialog.getByLabel(otherTeacher.publicName,{exact:true}).check();await dialog.getByRole('combobox',{name:'Корпус и аудитория',exact:true}).selectOption(otherRoom.id);await dialog.getByRole('combobox',{name:'Дисциплина',exact:true}).selectOption(otherDiscipline.id);await submit(page);
+  await uiPair.getByRole('button',{name:'Создать разовую замену',exact:true}).click();await expect(dialog.locator('select').filter({has:page.locator('option[value=custom]')})).toHaveValue('custom');await expect(dialog.locator('input[name=start]')).toHaveValue('18:00');await dialog.getByLabel(teacher.publicName,{exact:true}).uncheck();await dialog.getByLabel(otherTeacher.publicName,{exact:true}).check();await dialog.getByRole('combobox',{name:'Корпус и аудитория',exact:true}).selectOption(otherRoom.id);await dialog.getByRole('combobox',{name:'Дисциплина',exact:true}).selectOption(otherDiscipline.id);await submit(page);
   data=await(await api()).json();assert.equal(data.data.days[1].lessons[0].teachers[0].slug,otherTeacher.scheduleSlug);assert.equal(data.data.days[1].lessons[0].change.type,'REPLACED');
   for(const [email,home]of[[student.email,'/dashboard'],['anna.belova@example.test','/teacher']]){const privateContext=await browser.newContext();await privateContext.request.post(baseUrl+'/api/auth/sign-in/email',{headers:{Origin:baseUrl},data:{email,password}});const personal=await privateContext.request.get(baseUrl+home+'/schedule?week=2026-11-09');assert((await personal.text()).includes(otherDiscipline.title));await privateContext.close();}
   const publicPage=await context.request.get(baseUrl+'/schedule?group='+group.slug+'&week=2026-11-09');assert((await publicPage.text()).includes('Разовая замена'));
@@ -137,11 +166,47 @@ try{
   uiPair=page.locator('.editor-pair').filter({has:page.locator('.schedule-cancelled')});await uiPair.getByRole('button',{name:'Восстановить исходное занятие',exact:true}).click();await submit(page,true);data=await(await api()).json();assert(!data.data.days[1].lessons[0].change);
   await page.screenshot({path:resolve(root,'desktop-editor.png'),fullPage:true});
   const mobile=await browser.newContext({storageState:await context.storageState(),viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'reduce'});const phone=await mobile.newPage();phone.on('pageerror',e=>errors.push(e.message));await phone.goto(editorUrl);
-  await phone.getByRole('button',{name:'Добавить разовую пару',exact:true}).tap();await fillRegular(phone,otherTeacher.publicName);const phoneDialog=phone.getByRole('dialog',{name:'Редактор занятия'});await phoneDialog.getByLabel('Дата разового занятия',{exact:true}).fill('11.11.2026');await phoneDialog.getByLabel('Начало',{exact:true}).fill('16:00');await phoneDialog.getByLabel('Окончание',{exact:true}).fill('17:00');await phone.screenshot({path:resolve(root,'mobile-form.png'),fullPage:true});await submit(phone);
+  await phone.getByRole('button',{name:'Добавить разовую пару',exact:true}).tap();await fillRegular(phone,otherTeacher.publicName);const phoneDialog=phone.getByRole('dialog',{name:'Редактор занятия'});await phoneDialog.getByLabel('Дата разового занятия',{exact:true}).fill('11.11.2026');await phoneDialog.getByLabel('Начало',{exact:true}).fill('16:00');await phoneDialog.getByLabel('Окончание',{exact:true}).fill('17:00');await phoneDialog.locator('select[id$="-mode"]').selectOption('standard');await phoneDialog.locator('select[id$="-pair"]').selectOption('5');await expect(phoneDialog.locator('input[name=start]')).toHaveValue('15:55');await phone.screenshot({path:resolve(root,'mobile-form.png'),fullPage:true});await submit(phone);
   await expect(phone.locator('.schedule-change-label',{hasText:'Дополнительная пара'})).toBeVisible();assert(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await expect(phone.locator('.public-lesson-tags').filter({hasText:'5-'})).toHaveCount(1);
   const mobilePair=phone.locator('.editor-pair').filter({has:phone.locator('.schedule-change-label',{hasText:'Дополнительная пара'})});await mobilePair.getByRole('button',{name:'Удалить разовую пару',exact:true}).tap();await submit(phone,true);
   await mobile.close();
   await page.getByText('Все регулярные пары выбранной группы',{exact:true}).click();await page.locator('.editor-template').getByRole('button',{name:'Удалить',exact:true}).click();await submit(page,true);assert.equal((await(await api()).json()).data.days.flatMap(d=>d.lessons).length,0);
+  // Save standard times through the real form, reopen, and propagate a replacement.
+  await addTrigger.click();await fillRegular(page);
+  await dialog.locator('select[id$="-mode"]').selectOption('standard');
+  await dialog.locator('select[id$="-grid"]').selectOption('B');
+  await dialog.locator('select[id$="-pair"]').selectOption('3');
+  await submit(page);
+  const standardPair=page.locator('.editor-pair').filter({has:page.locator('h4',{hasText:discipline.title})});
+  await expect(standardPair.locator('.public-lesson-tags')).toContainText('3-\u044f \u043f\u0430\u0440\u0430');
+  await standardPair.locator('.editor-pair-actions button').first().click();
+  await expect(dialog.locator('select[id$="-mode"]')).toHaveValue('standard');
+  await expect(dialog.locator('select[id$="-grid"]')).toHaveValue('B');
+  await expect(dialog.locator('input[name=start]')).toHaveValue('11:50');
+  await page.keyboard.press('Escape');
+  await standardPair.locator('.editor-pair-actions button').nth(1).click();
+  await dialog.locator('select[id$="-grid"]').selectOption('A');
+  await submit(page);
+  let standardData=await(await api()).json();
+  assert.equal(standardData.data.days[0].lessons[0].start,'12:25');
+  assert.equal(standardData.data.days[0].lessons[0].end,'13:55');
+  for(const [email,home]of[[student.email,'/dashboard'],['mikhail.sokolov@example.test','/teacher']]){
+    const viewer=await browser.newContext();await viewer.request.post(baseUrl+'/api/auth/sign-in/email',{headers:{Origin:baseUrl},data:{email,password}});
+    const response=await viewer.request.get(baseUrl+home+'/schedule?week=2026-11-09');
+    assert((await response.text()).replace(/<!--.*?-->|<[^>]*>/g,'').includes('3-\u044f \u043f\u0430\u0440\u0430') && (await response.text()).includes('12:25'));
+    await viewer.close();
+  }
+  const rendered=await context.request.get(baseUrl+'/schedule?group='+group.slug+'&week=2026-11-09');
+  assert((await rendered.text()).replace(/<!--.*?-->|<[^>]*>/g,'').includes('3-\u044f \u043f\u0430\u0440\u0430') && (await rendered.text()).includes('12:25'));
+  await page.screenshot({path:resolve(root,'desktop-standard-pair.png'),fullPage:true});
+  await standardPair.locator('.editor-pair-actions button').first().click();
+  await dialog.locator('select[id$="-grid"]').selectOption('A');
+  await expect(dialog.locator('input[name=start]')).toHaveValue('12:25');
+  await page.screenshot({path:resolve(root,'desktop-standard-form.png'),fullPage:true});
+  await page.keyboard.press('Escape');
+  pass('Standard save, reopen and one-off replacement across all schedule views',{regularB:true,replacementA:true,publicStudentTeacherEditor:true});
+
   await page.getByRole('button',{name:'Добавить регулярную пару',exact:true}).click();await fillRegular(page);await db.deaneryDepartmentAssignment.delete({where:{userId_departmentId:{userId:assignment.userId,departmentId:assignment.departmentId}}});await dialog.getByRole('button',{name:'Сохранить занятие',exact:true}).click();await expect(dialog.getByRole('alert')).toContainText('полномочий');
   assert.deepEqual(errors,[]);assert.deepEqual(warnings,[]);assert.equal(await fingerprint(),before);
   pass('Competition workflow and shared output',{desktopCreateReplaceCancelRestoreDelete:true,mobileExtra:true,keyboardAndFocus:true,tamperedFormGroupDenied:true,inputPreservedAfterError:true,noCodeOrIdsRequired:true,studentTeacherPublicApi:true,cacheRevisionImmediate:true,liveAssignmentRevocation:true,browserErrors:0,sourceUnchanged:true});
