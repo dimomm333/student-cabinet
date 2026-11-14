@@ -17,12 +17,12 @@ export async function getStudentScheduleOverview(now = new Date()) {
   const actor = { id: user.id, role: "STUDENT" as const };
   const current = await getPersonalScheduleData(prisma, query, actor);
   const today = isoDate(currentAcademicDate(now));
-  const todayCount = current.days.find(day => day.date === today)?.lessons.length ?? 0;
+  const todayCount = current.days.find(day => day.date === today)?.lessons.filter(lesson => !lesson.change?.cancelled).length ?? 0;
   if (!current.selected) return { todayCount, todayFirst: null, day: null, linked: false };
   const limit = isoDate(new Date(currentAcademicDate(now).getTime() + 14 * DAY_MS));
   const time = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Moscow", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
   const candidates = [...current.days];
   for (let i = 1; i <= 2; i++) candidates.push(...(await getPersonalScheduleData(prisma, { ...query, week: new Date(query.week.getTime() + i * WEEK_MS) }, actor)).days);
-  const day = candidates.map(day => ({ ...day, lessons: day.lessons.filter(lesson => day.date > today || lesson.end > time) })).find(day => day.date >= today && day.date < limit && day.lessons.length) ?? null;
-  return { todayCount, todayFirst: current.days.find(day => day.date === today)?.lessons[0]?.start ?? null, day, linked: true };
+  const day = candidates.map(day => ({ ...day, lessons: day.lessons.filter(lesson => !lesson.change?.cancelled && (day.date > today || lesson.end > time)) })).find(day => day.date >= today && day.date < limit && day.lessons.length) ?? null;
+  return { todayCount, todayFirst: current.days.find(day => day.date === today)?.lessons.find(lesson => !lesson.change?.cancelled)?.start ?? null, day, linked: true };
 }

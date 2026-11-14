@@ -3,12 +3,13 @@ import { randomBytes, createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import { createClient } from "@libsql/client";
 import { hashPassword } from "better-auth/crypto";
 import { createPrismaClient } from "../src/lib/prisma-client.ts";
 import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { demoAccounts } from "../src/lib/demo-accounts.ts";
+import { roleLabels, roleHomes as homes } from "../src/lib/roles.ts";
 
 const observe = process.argv.includes("--observe"), production = process.argv.includes("--production");
 mkdirSync(".local", { recursive: true });
@@ -39,13 +40,90 @@ let logs = "", browser;
 const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", production ? "start" : "dev", production ? resolve(".") : project, "--hostname", "127.0.0.1", "--port", port], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, NODE_ENV: production ? "production" : "development", NEXT_TELEMETRY_DISABLED: "1", BETTER_AUTH_URL: base, BETTER_AUTH_SECRET: randomBytes(48).toString("base64url"), AUTH_TRUST_PROXY: "false", AUTH_PROXY_SECRET: "" } });
 child.stdout.on("data", data => { logs += data; }); child.stderr.on("data", data => { logs += data; });
 const warningPattern = /Next\.js encountered|unstable value|uncached data during|blocking-prerender|Blocking Route|Instant validation/;
-const homes = { STUDENT: "/dashboard", ADMIN: "/admin", TEACHER: "/teacher", TECHNICAL_STAFF: "/staff" };
 function pass(name, evidence = {}) { results.push({ name, ...evidence }); console.info(`PASS: ${name} ${JSON.stringify(evidence)}`); }
 async function settle(page) {
-  await page.locator("main h1").first().waitFor({ timeout: 60000 });
+  await page.locator("main h1:visible").first().waitFor({ timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 60000 });
   const overlay = await page.locator("nextjs-portal").allTextContents();
   for (const text of overlay) if (warningPattern.test(text)) diagnostics.push({ url: page.url(), type: "overlay", message: text });
+}
+async function verifyProfile(page, context, actor, home) {
+  const user = await db.user.findUniqueOrThrow({ where: { email: actor.email } });
+  const foreign = await db.user.findUniqueOrThrow({ where: { email: "maria.volkova@example.test" } });
+  const field = label => page.locator('.profile-fields:visible > div').filter({ has: page.locator('dt', { hasText: new RegExp('^' + label + '$') }) }).locator('dd');
+  await expect(page.locator('.header-profile')).toHaveAttribute('href', home + '/profile');
+  await page.locator('.header-profile .avatar').click();
+  await page.waitForURL(base + home + '/profile'); await settle(page);
+  await expect(page.locator('main h1:visible')).toHaveText('Профиль');
+  await expect(page.locator('.desktop-sidebar a[aria-current=page]')).toHaveAttribute('href', home + '/profile');
+  await expect(field('Имя и фамилия')).toHaveText(user.name);
+  await expect(field('Электронная почта')).toHaveText(user.email);
+  await expect(field('Роль')).toHaveText(roleLabels[user.role]);
+  await expect(field('Подтверждение почты')).toHaveText(user.emailVerified ? 'Подтверждена' : 'Не подтверждена');
+  await expect(field('Дата регистрации')).toHaveText(new Intl.DateTimeFormat('ru-RU', {dateStyle:'long', timeZone:'Europe/Moscow'}).format(user.createdAt));
+  assert.equal(await page.locator('.user-profile input, .user-profile select, .user-profile button').count(), 0);
+  const projections = {
+    STUDENT: ['studentProfile', 'Институт', 'institute'],
+    TEACHER: ['teacherProfile', 'Кафедра', 'department'],
+    TECHNICAL_STAFF: ['technicalStaffProfile', 'Подразделение', 'department'],
+  };
+  const projection = projections[actor.role];
+  if (actor.role === 'DEANERY_STAFF') {
+    const profile = await db.deaneryStaffProfile.findUnique({ where: {userId:user.id}, include: { departments: {include:{department:true},orderBy:{department:{name:'asc'}}} } });
+    await expect(field('Должность')).toHaveText(profile?.position || 'Не заполнено');
+    await expect(field('Назначенные подразделения')).toHaveText(profile?.departments.map(item=>item.department.faculty+' · '+item.department.name).join('; ') || 'Не заполнено');
+  }
+  if (projection) {
+    const [table, label, property] = projection;
+    const profile = await db[table].findUnique({ where: { userId: user.id } });
+    await expect(field(label)).toHaveText(profile?.[property]?.trim() ? profile[property] : 'Не заполнено');
+    const expected = actor.role === 'STUDENT' ? [
+      ['Номер студенческого билета', profile?.studentNumber], ['Образовательная программа', profile?.program],
+      ['Курс', profile?.course], ['Форма обучения', profile?.studyMode],
+      ['Учебная группа', (profile?.groupId ? await db.studyGroup.findUnique({where:{id:profile.groupId}}) : null)?.code ?? profile?.groupName],
+    ] : actor.role === 'TEACHER' ? [
+      ['Должность', profile?.position], ['Имя в публичном расписании', profile?.publicName],
+      ['Публикация в расписании', profile ? profile.isSchedulePublic ? 'Включена' : 'Отключена' : null],
+    ] : [['Должность', profile?.jobTitle]];
+    for (const [label, value] of expected) await expect(field(label)).toHaveText(value !== null && value !== undefined && String(value).trim() ? String(value) : 'Не заполнено');
+    if (profile) {
+      // Missing and empty fields must not acquire invented defaults.
+      for (const value of [null, '']) {
+        await db[table].update({ where: { userId: user.id }, data: { [property]: value } });
+        await page.reload(); await settle(page);
+        await expect(field(label)).toHaveText('Не заполнено');
+      }
+      await db[table].update({ where: { userId: user.id }, data: { [property]: profile[property] } });
+      if (actor.role === 'TECHNICAL_STAFF') {
+        await db[table].delete({where:{userId:user.id}});
+        await page.reload(); await settle(page);
+        await expect(field(label)).toHaveText('Не заполнено');
+        await expect(field('Должность')).toHaveText('Не заполнено');
+        await db[table].create({data:profile});
+      }
+    }
+  }
+  await page.goto(base + home + '/profile?userId=' + foreign.id + '&id=' + foreign.id + '&email=' + foreign.email);
+  await settle(page);
+  await expect(field('Электронная почта')).toHaveText(user.email);
+  assert(!(await page.locator('.user-profile').innerText()).includes(foreign.email), 'Foreign profile disclosed');
+  await page.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}-profile.png`), fullPage: true });
+  const mobile = await browser.newContext({ storageState: await context.storageState(), viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const phone = await mobile.newPage();
+  phone.setDefaultNavigationTimeout(120000);
+  phone.on('pageerror', error => browserErrors.push(error.message));
+  await phone.goto(base + home); await settle(phone);
+  await phone.locator('.header-profile').tap(); await phone.waitForURL(base + home + '/profile'); await settle(phone);
+  await expect(phone.locator('.user-profile')).toContainText(user.email);
+  await phone.getByRole('button', { name: 'Открыть меню', exact: true }).tap();
+  await expect(phone.locator('.mobile-menu a[href="' + home + '/profile"]')).toHaveAttribute('aria-current', 'page');
+  await phone.locator('.mobile-menu a[href="' + home + '/profile"]').tap();
+  await expect(phone.locator('.mobile-menu')).not.toBeVisible();
+  assert(await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Profile mobile overflow');
+  await phone.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}-profile-mobile.png`), fullPage: true });
+  await mobile.close();
+  await page.goto(base + home); await settle(page);
+  pass(`${actor.role}: profile links and ownership`, { avatar: true, menu: true, mobile: true, realDatabaseFields: true, missingFields: !!projection, spoofedOwnerIgnored: true, readOnly: true });
 }
 try {
   let ready = false;
@@ -55,6 +133,12 @@ try {
   }
   assert(ready, "Isolated navigation server unavailable");
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome", headless: true });
+  const anonymous = await browser.newContext();
+  const anonymousPage = await anonymous.newPage();
+  anonymousPage.setDefaultNavigationTimeout(120000);
+  for (const home of Object.values(homes)) { await anonymousPage.goto(base + home + '/profile'); await anonymousPage.waitForURL(base + '/login'); }
+  await anonymous.close();
+  pass('Anonymous profiles', { denied: Object.keys(homes).length });
   for (const actor of demoAccounts.filter(a => a.email !== "maria.volkova@example.test")) {
     if (process.argv.includes("--student-only") && actor.role !== "STUDENT") continue;
     const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, reducedMotion: "reduce" });
@@ -78,14 +162,17 @@ try {
     assert.equal(await page.evaluate(() => performance.timeOrigin), documentTime, "Menu navigation reloaded the document");
     await page.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}.png`), fullPage: true });
     pass(`${actor.role}: direct visit, menu and return home`, { sections: links.length });
+    if (!observe) await verifyProfile(page, context, actor, home);
     if (!observe) {
       for (const other of Object.values(homes).filter(path => path !== home)) {
         await page.goto(base + other); await page.waitForURL(base + home); await settle(page);
+        await page.goto(base + other + '/profile'); await page.waitForURL(base + home); await settle(page);
       }
       // Role updates must take effect on the next request, without a session cache.
       const user = await db.user.findUniqueOrThrow({ where: { email: actor.email } });
       const newRole = actor.role === "ADMIN" ? "TEACHER" : "ADMIN";
       await db.user.update({ where: { id: user.id }, data: { role: newRole } });
+      await page.goto(base + home + '/profile'); await page.waitForURL(base + homes[newRole]); await settle(page);
       await page.goto(base + home); await page.waitForURL(base + homes[newRole]); await settle(page);
       await db.user.update({ where: { id: user.id }, data: { role: actor.role } });
       await page.goto(base + home); await settle(page);

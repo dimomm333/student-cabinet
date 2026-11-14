@@ -85,9 +85,10 @@ try {
   const empty = await request("/api/v1/schedule?group=pi-24-1&week=2027-01-11"); assert.equal(empty.status, 200); assert.equal(lessons(empty).length, 0);
   pass("Schedule parity, academic weeks and website equality", { group: 5, teacher: 4, teacherGroups: 3, numberedWeek: true, outsideTermEmpty: true });
 
+  const demoDepartment = await db.studyGroup.findUniqueOrThrow({ where: { slug: "pi-24-1" }, select: { department: { select: { faculty: true, name: true } } } });
   for (const q of ["пи-24", "ПИ-24", "  Пи-24  "]) {
     const list = await request("/api/v1/groups?q=" + encodeURIComponent(q)); assert.equal(list.status, 200); assert.equal(list.json.data.length, 2);
-    assert.equal(list.json.data[0].programme, "Прикладная информатика"); assert.equal(list.json.data[0].faculty, null);
+    assert.equal(list.json.data[0].programme, "Прикладная информатика"); assert.equal(list.json.data[0].faculty, demoDepartment.department?.faculty ?? null); assert.equal(list.json.data[0].department, demoDepartment.department?.name ?? null);
   }
   for (const q of ["белова", "БЕЛОВА", "  БеЛоВа  "]) {
     const list = await request("/api/v1/teachers?q=" + encodeURIComponent(q)); assert.equal(list.json.data.length, 1); assert.equal(list.json.data[0].name, "Анна Белова");

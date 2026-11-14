@@ -8,6 +8,7 @@ import { workspaces, type WorkspaceRole } from "@/lib/workspaces";
 import { Brand } from "./brand";
 import { Icon } from "./icon";
 import { LogoutButton } from "./auth-controls";
+import { ProfileLink } from "./profile-link";
 
 export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; name: string; children: ReactNode }) {
   const pathname = usePathname();
@@ -45,7 +46,7 @@ export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; 
           <button type="button" className="icon-button mobile-menu-trigger" aria-label="Открыть меню" aria-haspopup="dialog" onClick={() => menu.current?.showModal()}><Icon name="menu" /></button>
           <div className="breadcrumb"><span>{workspace.title}</span><Icon name="chevron" size={14} /><strong>{current?.title ?? "Главная"}</strong></div>
         </div>
-        <div className="header-actions"><span className="role-user-name">{name}<small>{roleLabels[role]}</small></span><LogoutButton className="icon-button" compact /></div>
+        <div className="header-actions"><ProfileLink name={name} role={role} /><LogoutButton className="icon-button" compact /></div>
       </header>
       <main id="workspace-main" className="dashboard-main">{children}</main>
       <footer className="dashboard-footer"><span>{workspace.title}</span><span>Основа системы · Модули в разработке</span></footer>

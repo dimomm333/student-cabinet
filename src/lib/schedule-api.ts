@@ -27,7 +27,8 @@ export async function handleScheduleApi(request: Request, resource: ScheduleApiR
     const parameters = parseScheduleApiParameters(resource, new URL(request.url));
     const ttl = apiSetting("SCHEDULE_API_CACHE_SECONDS", 15, 0, 60);
     // Canonical key excludes headers/cookies and collapses date aliases to Monday.
-    const key = "v1:" + resource + ":" + JSON.stringify(parameters.kind === "schedule" ? { ...parameters, week: parameters.weekNumber !== null ? null : isoDate(parameters.week) } : parameters);
+    const revision = (await prisma.scheduleWriteState.findUnique({ where: { id: "schedule" } }))?.revision ?? 0;
+    const key = "v1:" + revision + ":" + resource + ":" + JSON.stringify(parameters.kind === "schedule" ? { ...parameters, week: parameters.weekNumber !== null ? null : isoDate(parameters.week) } : parameters);
     const cached = await withDeadline(cachedScheduleApiValue(key, async () => {
       const generatedAt = new Date();
       const data = await getScheduleApiData(prisma, resource, parameters);

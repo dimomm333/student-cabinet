@@ -10,6 +10,7 @@ import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { getPublicScheduleData, getPersonalScheduleData, groupScope } from "../src/lib/schedule-repository.ts";
 import { academicWeeks, filterScheduleChoices, scheduleHref, currentAcademicDate, isoDate, mondayOf, parseCalendarDate, parseDateInput, formatDateInput, shiftCalendarMonth, parseScheduleQuery, weekParity, weekRangeLabel } from "../src/lib/schedule-calendar.ts";
 import { demoAccounts } from "../src/lib/demo-accounts.ts";
+import { roleHomes } from "../src/lib/roles.ts";
 
 mkdirSync(".local", { recursive: true });
 const root = mkdtempSync(resolve(".local/schedule-test-"));
@@ -226,7 +227,6 @@ try {
   await db.scheduleEntry.update({ where: { id: "demo-entry-programming-pi1" }, data: sourceChange });
   assert((await request("/schedule?group=pi-24-1&week=2026-11-09&day=1")).text.includes("11:00"));
   await db.scheduleEntry.update({ where: { id: "demo-entry-programming-pi1" }, data: { startMinute: 645, endMinute: 735 } });
-  const roleHomes = { STUDENT: "/dashboard", TEACHER: "/teacher", TECHNICAL_STAFF: "/staff", ADMIN: "/admin" };
   for (const actor of actors) {
     const signed = await request("/api/auth/sign-in/email", { method: "POST", headers: { Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ email: actor.email, password: actor.password }) });
     assert.equal(signed.status, 200);
@@ -246,7 +246,7 @@ try {
     }
     await request("/api/auth/sign-out", { method: "POST", headers: { Origin: base, "Content-Type": "application/json", Cookie: cookie }, body: "{}" });
   }
-  pass("Production HTTP and main actions", { publicSchedule: true, searches: true, dayAndWeekNavigation: true, fiveRoleAwareCabinetLinks: true, databaseEditVisibleWithoutBuild: true });
+  pass("Production HTTP and main actions", { publicSchedule: true, searches: true, dayAndWeekNavigation: true, roleAwareCabinetLinks: actors.length, databaseEditVisibleWithoutBuild: true });
   assert(JSON.stringify(await snapshot(source)) === JSON.stringify(baseline), "Tests must not change the original DB");
   pass("Source database preservation", { unchanged: true });
 } finally {

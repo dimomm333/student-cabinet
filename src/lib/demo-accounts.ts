@@ -7,4 +7,5 @@ export const demoAccounts = [
   { name: "Ирина Лебедева", email: "irina.lebedeva@example.test", role: Role.ADMIN, passwordEnv: "DEMO_ADMIN_PASSWORD" },
   { name: "Михаил Соколов", email: "mikhail.sokolov@example.test", role: Role.TEACHER, passwordEnv: "DEMO_TEACHER_PASSWORD" },
   { name: "Сергей Петров", email: "sergey.petrov@example.test", role: Role.TECHNICAL_STAFF, passwordEnv: "DEMO_STAFF_PASSWORD" },
+  { name: "Ольга Кузнецова", email: "olga.kuznetsova@example.test", role: Role.DEANERY_STAFF, passwordEnv: "DEMO_DEANERY_PASSWORD" },
 ];

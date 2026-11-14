@@ -8,7 +8,7 @@ const dayFormat = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "lon
 const inRange = (date: Date) => date.getUTCFullYear() >= 2000 && date.getUTCFullYear() <= 2099;
 
 // Only a committed route date replaces the draft; ordinary typing never navigates.
-export function ScheduleDatePicker({ selected, onSelect }: { selected: string; onSelect: (date: Date) => void }) {
+export function ScheduleDatePicker({ selected, onSelect, label = "Дата учебной недели", name }: { selected: string; onSelect: (date: Date) => void; label?: string; name?: string }) {
   const id = useId();
   const [draft, setDraft] = useState(formatDateInput(selected));
   const [cursor, setCursor] = useState(new Date(selected + "T00:00:00Z"));
@@ -75,8 +75,8 @@ export function ScheduleDatePicker({ selected, onSelect }: { selected: string; o
   return <div className="schedule-date-picker" ref={root} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }} onKeyDown={event => {
     if (event.key === "Escape") { event.preventDefault(); setOpen(false); input.current?.focus({ preventScroll: true }); }
   }}>
-    <label htmlFor={id}>Дата расписания</label>
-    <div className="schedule-date-input"><input ref={input} id={id} aria-label="Дата учебной недели" type="text" inputMode="decimal" placeholder="ДД.ММ.ГГГГ" maxLength={10} value={draft} aria-invalid={!!error} aria-describedby={`${id}-hint`} onChange={event => { setDraft(event.target.value); setError(""); }} onKeyDown={event => {
+    <label htmlFor={id}>{label}</label>
+    <div className="schedule-date-input"><input ref={input} id={id} name={name} aria-label={label} type="text" inputMode="decimal" placeholder="ДД.ММ.ГГГГ" maxLength={10} value={draft} aria-invalid={!!error} aria-describedby={`${id}-hint`} onChange={event => { setDraft(event.target.value); setError(""); }} onKeyDown={event => {
       if (event.key === "Enter") { event.preventDefault(); confirm(); }
       if (event.key === "ArrowDown") { event.preventDefault(); openCalendar(); }
     }} /><button type="button" aria-label="Открыть календарь" aria-expanded={open} aria-controls={`${id}-calendar`} onClick={() => open ? setOpen(false) : openCalendar()}>▦</button><button type="button" aria-label="Применить дату" onClick={confirm}>✓</button></div>

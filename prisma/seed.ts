@@ -6,8 +6,11 @@ import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { parse } from "dotenv";
 import { practicalDemoNews, seedSchedule } from "./schedule-seed.ts";
+import { seedDemoScheduleLinks } from "./schedule-demo-links.ts";
 
 const prisma = createPrismaClient();
+const deaneryOnly = process.argv.includes("--deanery-only");
+const scheduleLinksOnly = process.argv.includes("--schedule-links-only");
 
 const credentialsPath = ".env.demo.local";
 const localPasswords = existsSync(credentialsPath) ? parse(readFileSync(credentialsPath, "utf8")) : {};
@@ -26,6 +29,8 @@ function demoPassword(key: string) {
 async function main() {
   const prepared: { identity: { name: string; email: string; role: Role }; password: string | null }[] = [];
   for (const { passwordEnv, ...identity } of demoAccounts) {
+    if (scheduleLinksOnly) continue;
+    if (deaneryOnly && identity.role !== Role.DEANERY_STAFF) continue;
     const existing = await prisma.user.findUnique({ where: { email: identity.email } });
     if (existing && existing.role !== identity.role) {
       throw new Error(`Роль ${identity.email} изменена. Seed не перезаписывает роли; проверьте аккаунт вручную.`);
@@ -59,9 +64,24 @@ async function main() {
       if (user.role === Role.TECHNICAL_STAFF) {
         await tx.technicalStaffProfile.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id, department: "Служба эксплуатации кампуса", jobTitle: "Инженер" } });
       }
+      if (user.role === Role.DEANERY_STAFF) {
+        // Initial explicit assignment only. Re-running seed never re-grants
+        // revoked assignments and never infers scope from legacy group names.
+        const profile = await tx.deaneryStaffProfile.findUnique({ where: { userId: user.id } });
+        if (!profile) {
+          const department = await tx.academicDepartment.upsert({
+            where: { faculty_name: { faculty: "Институт цифровых технологий", name: "Учебная кафедра" } }, update: {},
+            create: { faculty: "Институт цифровых технологий", name: "Учебная кафедра" },
+          });
+          await tx.deaneryStaffProfile.create({ data: { userId: user.id, position: "Специалист деканата", departments: { create: { departmentId: department.id } } } });
+        }
+      }
     }
-    for (const item of practicalDemoNews) await tx.news.upsert({ where: { id: item.id }, update: item, create: item });
-    await seedSchedule(tx);
+    if (!deaneryOnly && !scheduleLinksOnly) {
+      for (const item of practicalDemoNews) await tx.news.upsert({ where: { id: item.id }, update: item, create: item });
+      await seedSchedule(tx);
+    }
+    if (!deaneryOnly) await seedDemoScheduleLinks(tx);
   });
 
   const [userCount, newsCount] = await Promise.all([

@@ -1,7 +1,7 @@
 import type { IconName } from "@/components/icon";
 
 export const sections: { slug: string; title: string; icon: IconName; description: string; group: string }[] = [
-  { slug: "profile", title: "Профиль", icon: "user", description: "Здесь будут личные данные студента, информация об обучении и настройки профиля.", group: "Учёба" },
+  { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные студента и сведения об обучении.", group: "Учёба" },
   { slug: "schedule", title: "Моё расписание", icon: "calendar", description: "Здесь появится полное расписание занятий с выбором недели, аудиториями и преподавателями.", group: "Учёба" },
   { slug: "session", title: "Сессия", icon: "book", description: "Здесь будут расписание экзаменов и зачётов, консультации и результаты сессии.", group: "Учёба" },
   { slug: "grades", title: "Успеваемость", icon: "chart", description: "Здесь можно будет посмотреть оценки по дисциплинам и отслеживать учебный прогресс.", group: "Учёба" },

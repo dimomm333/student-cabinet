@@ -43,6 +43,7 @@ export async function getScheduleApiData(db: PrismaClient, resource: ScheduleApi
       discipline: lesson.discipline, kind: lesson.kindCode, start: lesson.start, end: lesson.end, weekPattern: lesson.weekPatternCode, term: lesson.termCode,
       teachers: lesson.teachers.map(t => ({ slug: t.slug, name: t.name })), groups: lesson.groups.map(g => ({ slug: g.slug, name: g.name })),
       room: lesson.room, building: lesson.building, timeZone: "Europe/Moscow",
+      ...(lesson.change ? { change: lesson.change } : {}),
     })) })),
     truncated: model.truncated,
   } };

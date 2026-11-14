@@ -7,6 +7,7 @@ import { sections } from "@/lib/demo-data";
 import { Brand } from "./brand";
 import { Icon } from "./icon";
 import { LogoutButton } from "./auth-controls";
+import { ProfileLink } from "./profile-link";
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -117,10 +118,7 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
             >
               <Icon name="bell" /><span />
             </Link>
-            <Link href="/dashboard/profile" className="header-profile" aria-label={`Профиль: ${name}`}>
-              <span className="avatar">{name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("")}</span>
-              <span className="profile-name">{name}<small>Студент</small></span>
-            </Link>
+            <ProfileLink name={name} role="STUDENT" />
             <LogoutButton className="icon-button exit-button" compact />
           </div>
         </header>

@@ -144,9 +144,9 @@ try {
   await search.fill("пи-24-1"); await page.getByRole("option", { name: "ПИ-24-1" }).click();
   await expect(page.locator("#schedule-result-title")).toHaveText("ПИ-24-1");
   await page.getByText("Все учебные группы", { exact: true }).click();
-  await expect(page.getByText("Факультет не указан", { exact: true })).toBeVisible();
+  await expect(page.getByText("Институт цифровых технологий", { exact: true })).toBeVisible();
   await expect(page.locator(".schedule-directory").getByText("Прикладная информатика", { exact: true })).toBeVisible();
-  await page.getByText("Факультет не указан", { exact: true }).click();
+  await page.getByText("Институт цифровых технологий", { exact: true }).click();
   await expect(page.getByRole("button", { name: "ПИ-24-1", exact: true })).toBeHidden();
   await page.getByText("Все учебные группы", { exact: true }).click();
   pass("Desktop combobox", { caseAndTrim: true, keyboard: true, mouse: true, focus: true, escape: true, noResults: true, noRequestsWhileTyping: true, hierarchyCollapse: true });

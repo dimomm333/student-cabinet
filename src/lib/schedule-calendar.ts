@@ -74,7 +74,7 @@ export function academicWeeks(startsOn: string, endsOn: string) {
 }
 
 export function scheduleHref(path: string, query: { view: "group" | "teacher"; selected: string; week: string; day: number | null; term?: string }, patch: Record<string, string> = {}) {
-  const params = new URLSearchParams({ ...(path === "/schedule" ? { view: query.view, [query.view === "group" ? "group" : "teacher"]: query.selected } : {}), week: query.week, day: query.day?.toString() ?? "all", term: query.term ?? "", ...patch });
+  const params = new URLSearchParams({ ...(path === "/schedule" ? { view: query.view, [query.view === "group" ? "group" : "teacher"]: query.selected } : path === "/deanery/schedule" ? { group: query.selected } : {}), week: query.week, day: query.day?.toString() ?? "all", term: query.term ?? "", ...patch });
   for (const [key, value] of [...params]) if (!value) params.delete(key);
   return path + "?" + params.toString();
 }

@@ -5,6 +5,7 @@ export const roleHomes: Record<Role, string> = {
   TEACHER: "/teacher",
   TECHNICAL_STAFF: "/staff",
   ADMIN: "/admin",
+  DEANERY_STAFF: "/deanery",
 };
 
 export const roleLabels: Record<Role, string> = {
@@ -12,6 +13,7 @@ export const roleLabels: Record<Role, string> = {
   TEACHER: "Преподаватель",
   TECHNICAL_STAFF: "Технический персонал",
   ADMIN: "Администратор",
+  DEANERY_STAFF: "Сотрудник деканата",
 };
 
 export function isRole(value: unknown): value is Role {

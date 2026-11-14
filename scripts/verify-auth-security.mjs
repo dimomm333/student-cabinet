@@ -11,6 +11,7 @@ import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { demoAccounts } from "../src/lib/demo-accounts.ts";
 import { workspaces } from "../src/lib/workspaces.ts";
 import { sections as studentSections } from "../src/lib/demo-data.ts";
+import { roleHomes as homes } from "../src/lib/roles.ts";
 
 const development = process.argv.includes("--development");
 const root = resolve(".");
@@ -22,7 +23,8 @@ assert.notEqual(isolatedURL, originalURL);
 const original = createPrismaClient();
 async function fingerprint(client) {
   const values = {};
-  for (const table of ["user", "news", "account", "studentProfile", "teacherProfile", "technicalStaffProfile"]) values[table] = await client[table].findMany({ orderBy: table.endsWith("Profile") ? { userId: "asc" } : { id: "asc" } });
+  for (const table of ["user", "news", "account", "studentProfile", "teacherProfile", "technicalStaffProfile", "deaneryStaffProfile"]) values[table] = await client[table].findMany({ orderBy: table.endsWith("Profile") ? { userId: "asc" } : { id: "asc" } });
+  values.deaneryAssignments = await client.deaneryDepartmentAssignment.findMany({ orderBy: [{ userId: "asc" }, { departmentId: "asc" }] });
   return createHash("sha256").update(JSON.stringify(values)).digest("hex");
 }
 const before = await fingerprint(original);
@@ -35,7 +37,7 @@ const secret = randomBytes(48).toString("base64url"), proxySecret = randomBytes(
 const actors = [];
 for (const identity of demoAccounts) {
   const user = await db.user.findUnique({ where: { email: identity.email } });
-  assert(user && user.role === identity.role, "Prepare all five demo accounts before testing");
+  assert(user && user.role === identity.role, "Prepare all demo accounts before testing");
   const password = randomBytes(24).toString("base64url");
   await db.account.updateMany({ where: { userId: user.id, providerId: "credential" }, data: { password: await hashPassword(password) } });
   actors.push({ ...user, password });
@@ -43,7 +45,6 @@ for (const identity of demoAccounts) {
 const tokens = [], results = [];
 let child, context, logs = "";
 const sleep = ms => new Promise(done => setTimeout(done, ms));
-const homes = { STUDENT: "/dashboard", TEACHER: "/teacher", TECHNICAL_STAFF: "/staff", ADMIN: "/admin" };
 const sections = { STUDENT: studentSections, ...Object.fromEntries(Object.entries(workspaces).map(([role, value]) => [role, value.sections])) };
 const log = (name, evidence) => { results.push({ name, ...evidence }); console.info(`PASS: ${name} ${JSON.stringify(evidence)}`); };
 const cookieFrom = response => response.headers.getSetCookie().map(c => c.split(";")[0]).join("; ");
@@ -183,7 +184,7 @@ try {
     const publicPage = await request("/"); assert.equal(publicPage.status, 200);
     const news = await db.news.findMany({ where: { publishedAt: { lte: new Date() } }, orderBy: [{ publishedAt: "desc" }, { id: "asc" }], take: 3 });
     for (const item of news) assert(publicPage.text.includes(item.title));
-    log("Four roles, five accounts, CSRF, logout replay and public news", { anonymous, allowed, rejected, accounts: actors.length });
+    log("Five roles, six accounts, CSRF, logout replay and public news", { anonymous, allowed, rejected, accounts: actors.length });
 
     for (const rememberMe of [false, true, undefined]) {
       const signed = await login(actors[1], { rememberMe, createdAt: "2099-01-01T00:00:00Z", expiresAt: "2099-01-02T00:00:00Z" });
