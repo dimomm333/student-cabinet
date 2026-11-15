@@ -1,10 +1,12 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "../generated/prisma/client.ts";
-import { authorizePlan, bounded, calculateStudent, fail, freshActor, planInclude, studentInPlan, BrsError, type BrsActor, type BrsDB, type FullPlan } from "./brs-repository.ts";
+import { authorizePlan, calculateStudent, fail, freshActor, planInclude, studentInPlan, BrsError, type BrsActor, type BrsDB, type FullPlan } from "./brs-repository.ts";
 import { requireDeaneryGroup } from "./deanery-repository.ts";
 import { brsSchedule, moduleWeeks, syncOccurrences } from "./brs-schedule.ts";
-import { controlLabels, template, distribute, type Control, labLabels, attendanceLabels } from "./brs-rules.ts";
+import { controlLabels, template, distribute, type Control, labLabels, attendanceLabels, timingLabels } from "./brs-rules.ts";
+import { converted, roundedHundredths } from "./brs-exact.ts";
+import { previewPrimaryScale } from "./brs-scales.ts";
 import { isoDate, mondayOf, parseCalendarDate, WEEK_MS } from "./schedule-calendar.ts";
 
 export type BrsCommand = { operation: string; requestId: string; planId?: string; revision?: number;
@@ -15,6 +17,7 @@ export type BrsCommand = { operation: string; requestId: string; planId?: string
   comment?: string; commentVisible?: boolean; reason?: string; confirmed?: boolean; state?: string;
   title?: string; kind?: string; week?: number; plannedOn?: string | null; issuedOn?: string | null; deadline?: string | null;
   maxScore?: number; required?: boolean; labMinScore?: number | null; labRequiresDefense?: boolean; examOn?: string | null;
+  primaryMax?: number; primaryScore?: number | null; scoringMode?: string; scaleVersion?: number; submissionTiming?: string | null;
 };
 const json = (value: unknown) => value == null ? null : JSON.stringify(value);
 function text(value: unknown, max = 1000) { if (typeof value !== "string" || value.length > max) fail("Некорректный текст поля."); return value.trim(); }
@@ -27,6 +30,16 @@ function validScore(value: unknown, max: number): number | null { return value =
 async function audit(db: BrsDB, actor: BrsActor, command: BrsCommand, objectId: string, before: unknown, after: unknown, hash: string, planId?: string, action = command.operation) {
   await db.brsAudit.create({ data: { actorId: actor.id, requestId: command.requestId, commandHash: hash, objectId, planId, action,
     beforeJson: json(before), afterJson: json(after), reason: command.reason ?? "" } });
+}
+async function reconcileAdmission(tx: BrsDB, actor: BrsActor, command: BrsCommand, plan: FullPlan, studentId: string, hash: string) {
+  const current = await calculateStudent(tx, plan, studentId);
+  if (!current.admission?.approved) return;
+  if (current.calculation.academic.state === "MET") {
+    await tx.brsAdmission.update({ where: { id: current.admission.id }, data: { basedRevision: plan.revision + 1 } });
+  } else {
+    const invalid = await tx.brsAdmission.update({ where: { id: current.admission.id }, data: { approved: false, reason: "Основания допуска утрачены после изменения результатов. Требуется новое подтверждение.", decidedAt: new Date(), basedRevision: plan.revision + 1, version: { increment: 1 } } });
+    await audit(tx, actor, { ...command, requestId: command.requestId + ":invalidate:" + studentId, reason: invalid.reason }, studentId, current.admission, invalid, hash, plan.id, "INVALIDATE");
+  }
 }
 export async function createDraft(db: BrsDB, actor: BrsActor, command: BrsCommand) {
   role(actor, "DEANERY_STAFF");
@@ -105,7 +118,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
     return await db.$transaction(async tx => {
       // Same schedule lock as the editor: publication/result checks see a stable timetable.
       await tx.scheduleWriteState.upsert({ where: { id: "schedule" }, create: { id: "schedule", revision: 0 }, update: { revision: { increment: 0 } } });
-      await tx.brsWriteState.upsert({ where: { id: "brs" }, create: { id: "brs", revision: 1 }, update: { revision: { increment: 1 } } });
+      await tx.brsWriteState.upsert({ where: { id: "brs" }, create: { id: "brs", revision: 0 }, update: { revision: { increment: 0 } } });
       await freshActor(tx, actor, true);
       if (actor.role === "STUDENT") fail("Студенту доступен только просмотр.", 403);
       let plan = command.planId ? await authorizePlan(tx, actor, command.planId) : null;
@@ -144,7 +157,24 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
         const event = plan.modules.flatMap(brsModule => brsModule.events).find(event => event.id === command.eventId);
         if (event && command.moduleId && command.moduleId !== event.moduleId) fail("Мероприятие не относится к указанному модулю.");
         const brsModule = plan.modules.find(brsModule => brsModule.id === (event?.moduleId ?? command.moduleId));
-        if (["EDIT_EVENT", "ADD_WORK", "REMOVE_WORK"].includes(command.operation)) {
+        if (["PREVIEW_SCALE", "PRIMARY_SCALE"].includes(command.operation)) {
+          role(actor, "TEACHER");
+          if (!event || !plan.publishedAt) fail("Выберите мероприятие опубликованного плана.");
+          if (command.maxScore !== undefined && command.maxScore !== event.maxScore) fail("Рейтинговый максимум зафиксирован планом и недоступен преподавателю для изменения.");
+          version(command.scaleVersion, event.scaleVersion);
+          const preview = await previewPrimaryScale(tx, plan, event.id, command.primaryMax!);
+          if (command.operation === "PREVIEW_SCALE") return { objectId: event.id, planId: plan.id, preview, message: "Предпросмотр пересчёта." };
+          if (preview.requiresConfirmation) { requireReason(command); if (!command.confirmed) fail("Подтвердите последствия изменения первичной шкалы."); }
+          if (preview.rows.some(row => row.authorId !== actor.id)) fail("Изменение шкалы затронет чужие результаты. Обратитесь к их автору.", 403);
+          before = { event, results: await tx.brsResult.findMany({ where: { eventId: event.id } }) };
+          await tx.brsEvent.update({ where: { id: event.id }, data: { primaryMax: command.primaryMax, scaleVersion: { increment: 1 } } });
+          for (const row of preview.rows) {
+            await tx.brsResult.update({ where: { id: row.resultId }, data: { primaryMax: command.primaryMax, score: row.after, version: { increment: 1 } } });
+            if (row.before !== row.after || event.primaryMax !== command.primaryMax && row.primaryScore !== null && row.primaryScore !== 0) await tx.brsFinal.updateMany({ where: { planId: plan.id, studentId: row.studentId }, data: { needsReview: true, version: { increment: 1 } } });
+          }
+          after = { preview, event: await tx.brsEvent.findUnique({ where: { id: event.id } }), results: await tx.brsResult.findMany({ where: { eventId: event.id } }) }; objectId = event.id;
+          if (plan.control === "EXAM") for (const row of preview.rows) await reconcileAdmission(tx, actor, command, plan, row.studentId, hash);
+        } else if (["EDIT_EVENT", "ADD_WORK", "REMOVE_WORK"].includes(command.operation)) {
           role(actor, "DEANERY_STAFF");
           if (plan.publishedAt) fail("Опубликованный план неизменяем. Максимумы и история сохранены.");
           if (command.operation === "REMOVE_WORK") {
@@ -165,7 +195,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               labMinScore: command.labMinScore == null ? null : integer(command.labMinScore, 0, maxScore), labRequiresDefense: command.labRequiresDefense !== false, occurrenceId };
             if (!values.title) fail("Укажите название мероприятия.");
             before = event;
-            const saved = event ? await tx.brsEvent.update({ where: { id: event.id }, data: values }) : await tx.brsEvent.create({ data: { ...values, moduleId: brsModule.id, kind: kind as "LAB", number: brsModule.events.length + 1 } });
+            const saved = event ? await tx.brsEvent.update({ where: { id: event.id }, data: values }) : await tx.brsEvent.create({ data: { ...values, moduleId: brsModule.id, kind: kind as "LAB", number: brsModule.events.filter(item => item.kind === kind).length + 1 } });
             objectId = saved.id; after = saved;
           }
         } else if (command.operation === "PUBLISH") {
@@ -181,29 +211,29 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
             if (!event || event.kind === "HOMEWORK") fail("Выберите мероприятие с привязкой к занятию.");
             const occurrence = await tx.brsOccurrence.findFirst({ where: { id: command.occurrenceId, planId: plan.id } });
             const live = occurrence && schedule.find(pair => pair.sourceKey === occurrence.sourceKey && !pair.cancelled);
+            if (event.kind === "SEMINAR" && plan.modules.some(item => item.events.some(other => other.kind === "SEMINAR" && other.id !== event.id && other.occurrenceId === occurrence?.id))) fail("Это занятие уже связано с другим семинаром плана. Двойное начисление недопустимо.");
             if (!live || !brsModule || live.week < brsModule.startWeek || live.week > brsModule.endWeek || event.kind === "SEMINAR" && !["SEMINAR", "PRACTICE"].includes(live.kind)) fail("Занятие должно подходить мероприятию и входить в его модуль.");
-            before = event; after = await tx.brsEvent.update({ where: { id: event.id }, data: { occurrenceId: occurrence!.id, plannedOn: new Date(live.date), week: live.week } }); objectId = event.id;
+            const protectedFinals = event.kind === "SEMINAR" && event.occurrenceId !== occurrence!.id ? await tx.brsFinal.findMany({ where: { planId: plan.id } }) : [];
+            const previous = new Map<string, Awaited<ReturnType<typeof calculateStudent>>["calculation"]>();
+            for (const final of protectedFinals) previous.set(final.studentId, (await calculateStudent(tx, plan, final.studentId)).calculation);
+            before = event;
+            const saved = await tx.brsEvent.update({ where: { id: event.id }, data: { occurrenceId: occurrence!.id, plannedOn: new Date(live.date), week: live.week } }); objectId = event.id;
+            const reviewIds: string[] = [];
+            if (protectedFinals.length) {
+              const nextPlan = await tx.brsPlan.findUniqueOrThrow({ where: { id: plan.id }, include: planInclude });
+              for (const final of protectedFinals) {
+                const next = (await calculateStudent(tx, nextPlan, final.studentId)).calculation, prior = previous.get(final.studentId)!;
+                if (JSON.stringify(prior.exactTotal) !== JSON.stringify(next.exactTotal) || prior.missing !== next.missing) {
+                  await tx.brsFinal.update({ where: { id: final.id }, data: { needsReview: true, version: { increment: 1 } } }); reviewIds.push(final.id);
+                }
+              }
+            }
+            after = { event: saved, officialReviews: reviewIds };
           } else after = { synced: true, maximaUnchanged: true };
         } else {
           if (!plan.publishedAt) fail("Сначала опубликуйте план БРС.");
           if (command.operation === "MODULE_STATE") {
-            role(actor, "TEACHER");
-            if (!brsModule || !["PLANNED", "ACTIVE", "AWAITING", "CLOSED"].includes(command.state ?? "")) fail("Выберите модуль и состояние.");
-            if (brsModule.state === "CLOSED") requireReason(command);
-            if (command.state !== "CLOSED" && await tx.brsFinal.count({ where: { planId: plan.id } })) {
-              requireReason(command);
-              await tx.brsFinal.updateMany({ where: { planId: plan.id }, data: { needsReview: true, version: { increment: 1 } } });
-            }
-            if (command.state === "CLOSED") {
-              const final = brsModule.events.find(item => item.kind === "FINAL")!;
-              const students = bounded(await tx.studentProfile.findMany({ where: { groupId: plan.groupId, user: { role: "STUDENT" } }, select: { userId: true }, take: 1001 }), 1000);
-              for (const student of students) {
-                const current = await calculateStudent(tx, plan, student.userId);
-                const result = current.results.find(result => result.eventId === final.id && !result.deleted);
-                if ((!result || result.score === null || result.passed === null) && !(plan.control === "DISTRIBUTED" && brsModule.number === plan.modules.length && current.attempts.some(attempt => !attempt.deleted))) fail("Для закрытия внесите итоговый РК или сессионную замену РЭкз каждому студенту группы.");
-              }
-            }
-            before = brsModule; after = await tx.brsModule.update({ where: { id: brsModule.id }, data: { state: command.state, closedAt: command.state === "CLOSED" ? new Date() : null } }); objectId = brsModule.id;
+            fail("Академическая завершённость модуля определяется автоматически по обязательным работам студента.");
           } else {
             const studentId = text(command.studentId, 128);
             objectId = studentId;
@@ -220,6 +250,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
             if (command.operation === "RESULT" || command.operation === "DELETE_RESULT") {
               role(actor, "TEACHER");
               if (!event || !brsModule) fail("Мероприятие недоступно.");
+              if (event.kind === "SEMINAR") fail("Семинарские баллы определяются посещаемостью. Измените отметку занятия.");
               if (existingResult && existingResult.authorId !== actor.id) fail("Изменять чужую запись запрещено.", 403);
               version(command.version, existingResult?.version ?? 0);
               if (brsModule.state === "CLOSED") requireReason(command);
@@ -236,11 +267,27 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
                 if (!existingResult || !command.confirmed) fail("Подтвердите удаление существующей записи.");
                 after = await tx.brsResult.update({ where: { id: existingResult.id }, data: { deleted: true, version: { increment: 1 } } });
               } else {
-                const score = validScore(command.score, event.maxScore);
+                const mode = command.scoringMode ?? (existingResult?.primaryMax != null ? "PRIMARY" : existingResult ? "LEGACY" : "PRIMARY");
+                if (!["LEGACY", "PRIMARY"].includes(mode)) fail("Выберите способ ввода баллов.");
+                let primaryScore: number | null = null, primaryMax: number | null = null, score: number | null;
+                if (mode === "PRIMARY") {
+                  if (!event.primaryMax) fail("Сначала настройте максимальный первичный балл работы.");
+                  if (existingResult && existingResult.primaryMax === null && existingResult.score !== null) { requireReason(command); if (!command.confirmed) fail("Подтвердите переход ранее выставленного результата на первичную шкалу."); }
+                  primaryMax = event.primaryMax;
+                  primaryScore = command.primaryScore === null ? null : integer(command.primaryScore, 0, primaryMax);
+                  score = primaryScore === null ? null : roundedHundredths(converted(primaryScore, primaryMax, event.maxScore));
+                } else {
+                  if (!existingResult || existingResult.primaryMax !== null) fail("Прямой рейтинговый ввод доступен только для сохранения прежних записей.");
+                  score = validScore(command.score, event.maxScore);
+                }
+                const submissionTiming = command.submissionTiming === undefined ? existingResult?.submissionTiming ?? null : command.submissionTiming;
+                if (submissionTiming != null && !Object.hasOwn(timingLabels, submissionTiming)) fail("Выберите состояние сдачи работы.");
+                if (event.kind === "HOMEWORK" && score !== null && !submissionTiming) fail("Выберите состояние сдачи ДЗ вручную.");
                 if (![true, false, null, undefined].includes(command.passed)) fail("Укажите успешность РК.");
-                if (command.labStatus != null && !Object.hasOwn(labLabels, command.labStatus)) fail("Некорректный статус ЛР.");
-                const values = { score, passed: command.passed ?? null, labStatus: command.labStatus ?? null, submittedOn: date(command.submittedOn), checkedOn: date(command.checkedOn), performedOn: date(command.performedOn), defendedOn: date(command.defendedOn), comment: text(command.comment ?? ""), commentVisible: command.commentVisible === true, deleted: false };
-                if (values.checkedOn && (!values.submittedOn && event.kind === "HOMEWORK" || values.submittedOn && values.checkedOn < values.submittedOn)) fail("Проверка не может предшествовать сдаче.");
+                const labStatus = command.labStatus === undefined ? existingResult?.labStatus ?? null : command.labStatus;
+                if (labStatus != null && !Object.hasOwn(labLabels, labStatus) && !(labStatus === "IN_PROGRESS" && existingResult?.labStatus === labStatus)) fail("Некорректный статус ЛР.");
+                const values = { score, primaryScore, primaryMax, submissionTiming, passed: command.passed ?? null, labStatus, submittedOn: date(command.submittedOn), checkedOn: date(command.checkedOn), performedOn: date(command.performedOn), defendedOn: date(command.defendedOn), comment: text(command.comment ?? ""), commentVisible: command.commentVisible === true, deleted: false };
+                if (values.checkedOn && values.submittedOn && values.checkedOn < values.submittedOn) fail("Проверка не может предшествовать сдаче.");
                 if (values.defendedOn && (!values.performedOn || values.defendedOn < values.performedOn)) fail("Защита не может предшествовать выполнению ЛР.");
                 after = existingResult ? await tx.brsResult.update({ where: { id: existingResult.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsResult.create({ data: { ...values, eventId: event.id, studentId, authorId: actor.id } });
               }
@@ -251,11 +298,14 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               const live = (await brsSchedule(tx, plan)).find(pair => pair.sourceKey === occurrence.sourceKey);
               if (!live || live.cancelled) fail("За отменённое занятие посещаемость не требуется. Существующие отметки сохранены.");
               if (plan.modules.some(item => item.state === "CLOSED" && live.week >= item.startWeek && live.week <= item.endWeek)) requireReason(command);
+              const changesSeminar = plan.modules.some(item => item.events.some(event => event.kind === "SEMINAR" && event.occurrenceId === occurrence.id)) && existingAttendance?.mark !== (command.mark ?? null);
+              if (official && changesSeminar) requireReason(command);
               if (existingAttendance && existingAttendance.authorId !== actor.id) fail("Изменять чужую отметку запрещено.", 403);
               version(command.version, existingAttendance?.version ?? 0);
               if (command.mark != null && !Object.hasOwn(attendanceLabels, command.mark)) fail("Некорректная отметка.");
               before = existingAttendance;
               after = existingAttendance ? await tx.brsAttendance.update({ where: { id: existingAttendance.id }, data: { mark: command.mark ?? null, version: { increment: 1 } } }) : await tx.brsAttendance.create({ data: { occurrenceId: occurrence.id, studentId, authorId: actor.id, mark: command.mark ?? null } });
+              if (official && changesSeminar) await tx.brsFinal.update({ where: { id: official.id }, data: { needsReview: true, version: { increment: 1 } } });
             } else if (command.operation === "CONFIRM" || command.operation === "REVOKE") {
               role(actor, "DEANERY_STAFF"); requireReason(command);
               if (plan.control !== "EXAM") fail("Официальный допуск деканата применяется только к обычному экзамену.");
@@ -292,19 +342,13 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               const current = await calculateStudent(tx, plan, studentId);
               if (!current.calculation.ready) fail("Для фиксации завершите обязательные работы, выставление баллов, модули и предусмотренный экзамен.");
               const values = { authorId: actor.id, score: current.calculation.total, rating: current.calculation.rating, grade: current.calculation.provisionalGrade,
-                basisJson: JSON.stringify({ calculation: current.calculation, resultVersions: current.results.map(r => [r.id, r.version]), attemptVersions: current.attempts.map(a => [a.id, a.version]) }), basedRevision: plan.revision + 1, approvedAt: new Date(), needsReview: false };
+                basisJson: JSON.stringify({ calculation: current.calculation, resultVersions: current.results.map(r => [r.id, r.version]), attemptVersions: current.attempts.map(a => [a.id, a.version]), attendanceVersions: current.attendance.map(a => [a.id, a.version]) }), basedRevision: plan.revision + 1, approvedAt: new Date(), needsReview: false };
               before = official;
               after = official ? await tx.brsFinal.update({ where: { id: official.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsFinal.create({ data: { ...values, planId: plan.id, studentId } });
             } else fail("Неизвестная операция.");
             if (["RESULT", "DELETE_RESULT", "ATTEMPT", "DELETE_ATTEMPT"].includes(command.operation) && official) await tx.brsFinal.update({ where: { id: official.id }, data: { needsReview: true, version: { increment: 1 } } });
             if (["RESULT", "DELETE_RESULT"].includes(command.operation) && plan.control === "EXAM") {
-              const current = await calculateStudent(tx, plan, studentId);
-              if (current.admission?.approved) {
-                if (current.calculation.academic.state !== "MET") {
-                  const invalid = await tx.brsAdmission.update({ where: { id: current.admission.id }, data: { approved: false, reason: "Основания допуска утрачены после изменения результатов. Требуется новое подтверждение.", decidedAt: new Date(), basedRevision: plan.revision + 1, version: { increment: 1 } } });
-                  await audit(tx, actor, { ...command, requestId: command.requestId + ":invalidate", reason: invalid.reason }, studentId, current.admission, invalid, hash, plan.id, "INVALIDATE");
-                } else await tx.brsAdmission.update({ where: { id: current.admission.id }, data: { basedRevision: plan.revision + 1 } });
-              }
+              await reconcileAdmission(tx, actor, command, plan, studentId, hash);
             }
           }
         }

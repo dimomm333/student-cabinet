@@ -884,6 +884,11 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-module-total { background: #edf3e9; }
 .brs-module-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 15px; }
 .brs-dialog { border: 0; border-radius: 18px; padding: 24px; width: min(640px,calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; color: #233b31; background: #fcfdf9; box-shadow: 0 24px 80px #142b3450; }
+.brs-dialog { position: fixed; inset: 0; margin: auto; overscroll-behavior: contain; }
+.brs-course-details, .brs-score-fields { min-width: 0; display: grid; gap: 14px; }
+.brs-student-full [data-module-total] { background: #eaf1e5; border-left: 2px solid #aabd9d; }
+.brs-student-full .brs-column-active { background: #fff1d2; box-shadow: inset 0 2px #e0b75c; }
+.brs-table .brs-score-preview { white-space: normal; }
 .brs-dialog::backdrop { background: #162f3866; }
 .brs-dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 15px; }
 .brs-dialog-head h2 { margin: 0; font-size: 21px; }

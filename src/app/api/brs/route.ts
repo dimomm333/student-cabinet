@@ -1,4 +1,5 @@
 import { connection } from "next/server";
+import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isSessionWithinLifetime } from "@/lib/session-policy";
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     return response(serializeWorkspace(await getBrsWorkspace(prisma, user, url.searchParams.get("planId") ?? "")));
   } catch (error) { return errorResponse(error); }
 }
-const fields = new Set("operation requestId planId revision groupId disciplineId termId teacherId assignmentId control moduleCount eventId moduleId studentId occurrenceId attemptId version score passed labStatus mark submittedOn checkedOn performedOn defendedOn heldOn comment commentVisible reason confirmed state title kind week plannedOn issuedOn deadline maxScore required labMinScore labRequiresDefense examOn".split(" "));
+const fields = new Set("operation requestId planId revision groupId disciplineId termId teacherId assignmentId control moduleCount eventId moduleId studentId occurrenceId attemptId version score passed labStatus mark submittedOn checkedOn performedOn defendedOn heldOn comment commentVisible reason confirmed state title kind week plannedOn issuedOn deadline maxScore required labMinScore labRequiresDefense examOn primaryMax primaryScore scoringMode scaleVersion submissionTiming".split(" "));
 async function readBody(request: Request) {
   if (Number(request.headers.get("content-length") ?? 0) > 32768) throw new BrsError("Запрос слишком большой.", 413);
   const reader = request.body?.getReader();
@@ -60,6 +61,8 @@ export async function POST(request: Request) {
     const command = await readBody(request);
     // A slow upload cannot retain the session/authority from the start of a request.
     const user = await actor(request);
-    return response(await executeBrsCommand(prisma, user, command));
+    const result = await executeBrsCommand(prisma, user, command);
+    if (command.operation !== "PREVIEW_SCALE") for (const path of ["/dashboard", "/dashboard/grades", "/dashboard/session", "/teacher/grades", "/teacher/session", "/deanery/brs", "/deanery/grades", "/deanery/admissions", "/deanery/session"]) revalidatePath(path);
+    return response(result);
   } catch (error) { return errorResponse(error); }
 }

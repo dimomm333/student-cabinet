@@ -63,7 +63,8 @@ export async function seedBrsDemo(db: PrismaClient) {
             await tx.brsResult.create({ data: values });
           }
           for (let i = 0; i < plan.occurrences.length; i++) {
-            const mark = ["PRESENT", "ACTIVE", "SICK", "ABSENT", "EXCUSED", null][(i + index) % 6];
+            let mark = ["PRESENT", "ACTIVE", "SICK", "ABSENT", "EXCUSED", null][(i + index) % 6];
+            if (index === 0 && mark === null && plan.modules.some(item => item.events.some(event => event.kind === "SEMINAR" && event.occurrenceId === plan.occurrences[i].id))) mark = "PRESENT";
             if (mark) await tx.brsAttendance.create({ data: { occurrenceId: plan.occurrences[i].id, studentId: student.id, authorId: teacher.id, mark } });
           }
           if (index === 0 && code === "math") {

@@ -400,6 +400,8 @@ model BrsEvent {
   issuedOn DateTime?
   deadline DateTime?
   maxScore Int
+  primaryMax Int?
+  scaleVersion Int @default(1)
   required Boolean @default(true)
   labMinScore Int?
   labRequiresDefense Boolean @default(true)
@@ -418,6 +420,9 @@ model BrsResult {
   authorId String
   author User @relation("BrsAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   score Int?
+  primaryScore Int?
+  primaryMax Int?
+  submissionTiming String?
   passed Boolean?
   labStatus String?
   submittedOn DateTime?

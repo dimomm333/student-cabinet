@@ -2,7 +2,7 @@ import "server-only";
 import type { Prisma, PrismaClient } from "../generated/prisma/client.ts";
 import { deaneryGroupWhere, requireDeaneryGroup } from "./deanery-repository.ts";
 import { isSessionWithinLifetime } from "./session-policy.ts";
-import { calculateBrs, type CalcModule } from "./brs-rules.ts";
+import { calculateBrs, effectiveModules, workStatus } from "./brs-rules.ts";
 import { brsSchedule } from "./brs-schedule.ts";
 import { isoDate, currentAcademicDate, academicWeeks } from "./schedule-calendar.ts";
 
@@ -50,8 +50,9 @@ export async function calculateStudent(db: BrsDB, plan: FullPlan, studentId: str
   const results = bounded(await db.brsResult.findMany({ where: { studentId, event: { module: { planId: plan.id } } } }), 5000);
   const attempts = bounded(await db.brsExamAttempt.findMany({ where: { planId: plan.id, studentId }, orderBy: { number: "asc" } }), 200);
   const admission = await db.brsAdmission.findUnique({ where: { planId_studentId: { planId: plan.id, studentId } } });
-  const modules: CalcModule[] = plan.modules.map(module => ({ ...module, events: module.events.map(event => ({ ...event, result: results.find(result => result.eventId === event.id) })) }));
-  return { calculation: calculateBrs(plan.control, modules, attempts, admission), results, attempts, admission };
+  const attendance = bounded(await db.brsAttendance.findMany({ where: { studentId, occurrence: { planId: plan.id } } }), 5000);
+  const modules = effectiveModules(plan.modules, results, attendance);
+  return { calculation: calculateBrs(plan.control, modules, attempts, admission), results, attempts, admission, attendance, modules };
 }
 export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId = "") {
   return db.$transaction(async tx => {
@@ -79,7 +80,7 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
     const roster = bounded(await tx.user.findMany({ where, select: { id: true, name: true, studentProfile: { select: { groupId: true } } }, orderBy: { name: "asc" }, take: 1001 }), 1000);
     const studentIds = roster.map(student => student.id);
     const results = bounded(await tx.brsResult.findMany({ where: { studentId: { in: studentIds }, event: { module: { planId: plan.id } } }, select: {
-      id: true, eventId: true, studentId: true, authorId: true, score: true, passed: true, labStatus: true, submittedOn: true, checkedOn: true, performedOn: true, defendedOn: true, commentVisible: true,
+      id: true, eventId: true, studentId: true, authorId: true, score: true, primaryScore: true, primaryMax: true, submissionTiming: true, passed: true, labStatus: true, submittedOn: true, checkedOn: true, performedOn: true, defendedOn: true, commentVisible: true,
       ...(actor.role === "TEACHER" ? { comment: true } : {}), deleted: true, version: true,
     }, take: 20001 }), 20000);
     // Private comments are not even selected for student/deanery payloads.
@@ -103,7 +104,7 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
       const studentResults = safeResults.filter(result => result.studentId === student.id);
       const studentAttempts = safeAttempts.filter(attempt => attempt.studentId === student.id);
       const admission = admissions.find(item => item.studentId === student.id) ?? null;
-      const modules = plan.modules.map(module => ({ ...module, events: module.events.map(event => ({ ...event, result: studentResults.find(result => result.eventId === event.id) })) }));
+      const modules = effectiveModules(plan.modules, studentResults, attendance.filter(item => item.studentId === student.id));
       return { id: student.id, name: student.name, former: student.studentProfile?.groupId !== plan.groupId, results: studentResults, attempts: studentAttempts, admission,
         attendance: attendance.filter(item => item.studentId === student.id), official: finals.find(item => item.studentId === student.id) ?? null,
         calculation: calculateBrs(plan.control, modules, studentAttempts, admission) };
@@ -117,12 +118,18 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
     if (actor.role === "STUDENT") for (const item of bounded(plans.filter(item => item.termId === plan.termId), 50)) {
       const course = item.id === plan.id ? plan : await authorizePlan(tx, actor, item.id);
       const own = await calculateStudent(tx, course, actor.id);
+      const ownSchedule = course.id === plan.id ? schedule : await brsSchedule(tx, course);
       overview.push({ id: course.id, title: course.discipline.title, control: course.control, calculation: own.calculation,
-        modules: course.modules.map(brsModule => ({ id: brsModule.id, number: brsModule.number, state: brsModule.state, events: brsModule.events.map(event => {
-          const result = own.results.find(result => result.eventId === event.id && !result.deleted);
-          const status = !result ? "Не сдано" : event.kind === "HOMEWORK" ? !result.submittedOn ? "Не сдано" : result.submittedOn < event.deadline! ? "Сдано досрочно" : result.submittedOn.getTime() === event.deadline?.getTime() ? "Сдано вовремя" : "Сдано с опозданием" : event.kind === "LAB" ? result.labStatus ?? "NOT_STARTED" : result.passed === null ? result.score === null ? "Не выставлено" : "Оценено" : result.passed ? "Сдан" : "Не сдан";
-          return { id: event.id, title: event.title, kind: event.kind, week: event.week, maxScore: event.maxScore, score: result?.score ?? null, status };
-        }) })),
+        attendance: own.attendance.map(item => ({ occurrenceId: item.occurrenceId, mark: item.mark })),
+        occurrences: course.occurrences.map(item => {
+          const live = ownSchedule.find(pair => pair.sourceKey === item.sourceKey);
+          return { id: item.id, actualDate: live?.date ?? isoDate(item.date), actualStart: live?.startMinute ?? item.startMinute, actualEnd: live?.endMinute ?? item.endMinute, cancelled: !live || live.cancelled };
+        }),
+        modules: own.modules.map(brsModule => ({ id: brsModule.id, number: brsModule.number, startWeek: brsModule.startWeek, endWeek: brsModule.endWeek, events: brsModule.events.map(event => ({
+          ...event, result: event.result && !event.result.deleted ? { score: event.result.score, primaryScore: event.result.primaryScore ?? null, primaryMax: event.result.primaryMax ?? null, labStatus: event.result.labStatus, defendedOn: event.result.defendedOn ?? null } : null,
+          score: event.result && !event.result.deleted ? event.result.score : null, status: workStatus(event, event.result),
+          comment: own.results.find(result => result.eventId === event.id && !result.deleted && result.commentVisible)?.comment ?? "",
+        })) })),
         official: await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: course.id, studentId: actor.id } }, select: { grade: true, rating: true, needsReview: true } }) });
     }
     return { role: actor.role, actorId: actor.id, plans, catalog, overview, selected: { ...plan, modules, occurrences, students, schedule, history,
