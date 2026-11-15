@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     // A slow upload cannot retain the session/authority from the start of a request.
     const user = await actor(request);
     const result = await executeBrsCommand(prisma, user, command);
-    if (command.operation !== "PREVIEW_SCALE") for (const path of ["/dashboard", "/dashboard/grades", "/dashboard/session", "/teacher/grades", "/teacher/session", "/deanery/brs", "/deanery/grades", "/deanery/admissions", "/deanery/session"]) revalidatePath(path);
+    for (const path of ["/dashboard", "/dashboard/grades", "/dashboard/session", "/teacher/grades", "/teacher/session", "/deanery/brs", "/deanery/grades", "/deanery/admissions", "/deanery/session"]) revalidatePath(path);
     return response(result);
   } catch (error) { return errorResponse(error); }
 }

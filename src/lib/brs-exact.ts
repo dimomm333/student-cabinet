@@ -15,6 +15,8 @@ export function roundedHundredths(a: Fraction) { return Number((a.n * BigInt(2) 
 export function integerRating(a: Fraction) { return Number((a.n + a.d * BigInt(100) - BigInt(1)) / (a.d * BigInt(100))); }
 export function exactDto(a: Fraction): ExactScore { return { numerator: String(a.n), denominator: String(a.d) }; }
 export function converted(primary: number, primaryMax: number, ratingMax: number) { return fraction(BigInt(primary) * BigInt(ratingMax), primaryMax); }
-export function ratingValue(result: { score: number | null; primaryScore?: number | null; primaryMax?: number | null }, max: number) {
+export function ratingValue(result: { score: number | null; primaryScore?: number | null; primaryMax?: number | null; exactNumerator?: string | null; exactDenominator?: string | null }, max: number) {
+  if (result.score === null) return fraction(0);
+  if (result.exactNumerator != null && result.exactDenominator != null) return fraction(BigInt(result.exactNumerator), BigInt(result.exactDenominator));
   return result.primaryScore != null && result.primaryMax != null ? converted(result.primaryScore, result.primaryMax, max) : fraction(result.score ?? 0);
 }

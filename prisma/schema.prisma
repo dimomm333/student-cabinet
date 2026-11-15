@@ -402,6 +402,7 @@ model BrsEvent {
   maxScore Int
   primaryMax Int?
   scaleVersion Int @default(1)
+  scoringMode String @default("RATING")
   required Boolean @default(true)
   labMinScore Int?
   labRequiresDefense Boolean @default(true)
@@ -423,6 +424,9 @@ model BrsResult {
   primaryScore Int?
   primaryMax Int?
   submissionTiming String?
+  scoreSource String @default("HISTORICAL")
+  exactNumerator String?
+  exactDenominator String?
   passed Boolean?
   labStatus String?
   submittedOn DateTime?

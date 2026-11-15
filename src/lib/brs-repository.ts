@@ -80,7 +80,7 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
     const roster = bounded(await tx.user.findMany({ where, select: { id: true, name: true, studentProfile: { select: { groupId: true } } }, orderBy: { name: "asc" }, take: 1001 }), 1000);
     const studentIds = roster.map(student => student.id);
     const results = bounded(await tx.brsResult.findMany({ where: { studentId: { in: studentIds }, event: { module: { planId: plan.id } } }, select: {
-      id: true, eventId: true, studentId: true, authorId: true, score: true, primaryScore: true, primaryMax: true, submissionTiming: true, passed: true, labStatus: true, submittedOn: true, checkedOn: true, performedOn: true, defendedOn: true, commentVisible: true,
+      id: true, eventId: true, studentId: true, authorId: true, score: true, primaryScore: true, primaryMax: true, scoreSource: true, exactNumerator: true, exactDenominator: true, submissionTiming: true, passed: true, labStatus: true, submittedOn: true, checkedOn: true, performedOn: true, defendedOn: true, commentVisible: true,
       ...(actor.role === "TEACHER" ? { comment: true } : {}), deleted: true, version: true,
     }, take: 20001 }), 20000);
     // Private comments are not even selected for student/deanery payloads.
@@ -126,7 +126,7 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
           return { id: item.id, actualDate: live?.date ?? isoDate(item.date), actualStart: live?.startMinute ?? item.startMinute, actualEnd: live?.endMinute ?? item.endMinute, cancelled: !live || live.cancelled };
         }),
         modules: own.modules.map(brsModule => ({ id: brsModule.id, number: brsModule.number, startWeek: brsModule.startWeek, endWeek: brsModule.endWeek, events: brsModule.events.map(event => ({
-          ...event, result: event.result && !event.result.deleted ? { score: event.result.score, primaryScore: event.result.primaryScore ?? null, primaryMax: event.result.primaryMax ?? null, labStatus: event.result.labStatus, defendedOn: event.result.defendedOn ?? null } : null,
+          ...event, result: event.result && !event.result.deleted ? { score: event.result.score, scoreSource: event.result.scoreSource, primaryScore: event.result.primaryScore ?? null, primaryMax: event.result.primaryMax ?? null, labStatus: event.result.labStatus, defendedOn: event.result.defendedOn ?? null } : null,
           score: event.result && !event.result.deleted ? event.result.score : null, status: workStatus(event, event.result),
           comment: own.results.find(result => result.eventId === event.id && !result.deleted && result.commentVisible)?.comment ?? "",
         })) })),

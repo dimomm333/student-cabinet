@@ -4,6 +4,12 @@ export const controlLabels = { CREDIT: "З", DIFFERENTIATED: "ДифЗ", EXAM: "
 export type Control = keyof typeof controlLabels;
 export const eventLabels = { HOMEWORK: "ДЗ", LAB: "ЛР", INTERIM: "РК", FINAL: "РК/М", SEMINAR: "Семинар" } as const;
 export type EventKind = keyof typeof eventLabels;
+export function workTitle(event: { kind: EventKind; title: string; number?: number }) {
+  if (event.kind === "FINAL") return "РК/М";
+  const type = eventLabels[event.kind];
+  const title = event.title.trim().replace(/^(ДЗ|РК|ЛР)\s+(?=ДЗ|РК|ЛР)/i, "").replace(/^(ДЗ|РК|ЛР)\s+(\d)/i, "$1$2");
+  return /^(ДЗ|РК|ЛР|Семинар)/i.test(title) ? title : `${type}${event.number ?? ""}${title ? ` · ${title}` : ""}`;
+}
 export const attendanceLabels = { PRESENT: "✓", ACTIVE: "✓✓", SICK: "Б", ABSENT: "Н", EXCUSED: "У" } as const;
 export const labLabels = { NOT_STARTED: "Не начата", COMPLETED: "Выполнена", DEFENDED: "Защищена", FAILED: "Не зачтена" } as const;
 export const timingLabels = { NOT_SUBMITTED: "Не сдано", EARLY: "Сдано досрочно", ON_TIME: "Сдано вовремя", LATE: "Сдано с опозданием" } as const;
@@ -18,6 +24,11 @@ export function parsePoints(value: unknown): number {
 }
 export function points(value: number | null | undefined) { return value == null ? "—" : `${Math.trunc(value / 100)}${value % 100 ? "," + String(value % 100).padStart(2, "0").replace(/0$/, "") : ""}`; }
 export function pointInput(value: number | null | undefined) { return value == null ? "" : points(value).replace(",", "."); }
+export function halfPoints(maximum: number) {
+  const whole = Math.floor(maximum / 200), remainder = maximum % 200;
+  return `${whole}${remainder ? "," + String(remainder * 5).padStart(3, "0").replace(/0+$/, "") : ""}`;
+}
+export function resultPoints(result: { score: number | null; scoreSource?: string; deleted?: boolean } | null | undefined, maximum: number) { return !result || result.deleted ? "—" : result.scoreSource === "LATE" ? halfPoints(maximum) : points(result.score); }
 export function parsePrimary(value: unknown) {
   if (typeof value !== "string" || !/^\d{1,6}([.,]\d{1,2})?$/.test(value)) throw new Error("Укажите первичные баллы с точностью до сотых.");
   const [whole, part = ""] = value.replace(",", ".").split(".");
@@ -40,7 +51,7 @@ export function distribute(total: number, count: number) {
   if (!Number.isInteger(total) || total < 0 || !Number.isInteger(count) || count < 1) throw new Error("Нет подходящих занятий для распределения фонда.");
   return Array.from({ length: count }, (_, i) => Math.floor(total / count) + (i >= count - total % count ? 1 : 0));
 }
-export type ResultInput = { score: number | null; primaryScore?: number | null; primaryMax?: number | null; submissionTiming?: string | null; passed: boolean | null; labStatus: string | null; deleted: boolean; submittedOn?: Date | string | null; checkedOn?: Date | string | null; performedOn?: Date | string | null; defendedOn?: Date | string | null };
+export type ResultInput = { score: number | null; primaryScore?: number | null; primaryMax?: number | null; exactNumerator?: string | null; exactDenominator?: string | null; scoreSource?: string; submissionTiming?: string | null; passed: boolean | null; labStatus: string | null; deleted: boolean; submittedOn?: Date | string | null; checkedOn?: Date | string | null; performedOn?: Date | string | null; defendedOn?: Date | string | null };
 export type CalcEvent = { id: string; title: string; kind: EventKind; maxScore: number; required: boolean; labMinScore: number | null; labRequiresDefense: boolean; result?: ResultInput };
 export type CalcModule = { id: string; number: number; state: string; seminarMax: number; workMax: number; controlMax: number; events: CalcEvent[] };
 export function workStatus(event: Pick<CalcEvent, "kind">, result?: ResultInput) {
@@ -48,7 +59,7 @@ export function workStatus(event: Pick<CalcEvent, "kind">, result?: ResultInput)
   if (event.kind === "LAB") return labLabel(result.labStatus);
   if (result.submissionTiming) return timingLabels[result.submissionTiming as keyof typeof timingLabels] ?? "Срок сдачи не указан";
   if (event.kind === "HOMEWORK") return "Срок сдачи не указан";
-  return result.passed === null ? result.score === null ? "Не выставлено" : "Оценено" : result.passed ? "Сдан" : "Не сдан";
+  return "Состояние сдачи не указано";
 }
 type EffectiveModules<M extends { events: CalcEvent[] }> = (Omit<M, "events"> & { events: (M["events"][number] & { result: ResultInput | undefined })[] })[];
 export function effectiveModules<M extends { events: (CalcEvent & { occurrenceId?: string | null })[] }>(modules: M[], results: (ResultInput & { eventId: string })[], attendance: { occurrenceId: string; mark: string | null }[]): EffectiveModules<M> {
@@ -62,15 +73,14 @@ export function completion(event: CalcEvent): "MET" | "FAILED" | "PENDING" {
   const result = event.result;
   if (!result || result.deleted || result.score === null) return "PENDING";
   const score = ratingValue(result, event.maxScore);
-  if (event.kind === "HOMEWORK") {
-    const submitted = result.submissionTiming ? result.submissionTiming !== "NOT_SUBMITTED" : !!result.submittedOn && !!result.checkedOn;
+  if (["HOMEWORK", "INTERIM", "FINAL"].includes(event.kind)) {
+    const submitted = result.submissionTiming ? result.submissionTiming !== "NOT_SUBMITTED" : event.kind === "HOMEWORK" ? !!result.submittedOn && !!result.checkedOn : result.passed !== null;
     return !submitted ? "PENDING" : compare(score, fraction(event.maxScore, 2)) >= 0 ? "MET" : "FAILED";
   }
   if (event.kind === "LAB") {
     if (result.labStatus === "FAILED" || compare(score, fraction(event.labMinScore ?? 0)) < 0) return "FAILED";
     return result.performedOn && (event.labRequiresDefense ? result.labStatus === "DEFENDED" && !!result.defendedOn : ["COMPLETED", "DEFENDED"].includes(result.labStatus ?? "")) ? "MET" : "PENDING";
   }
-  if (event.kind === "INTERIM" || event.kind === "FINAL") return result.passed === null ? "PENDING" : result.passed ? "MET" : "FAILED";
   return "MET";
 }
 export function conditions(events: CalcEvent[]) {
@@ -91,7 +101,7 @@ export function calculateBrs(control: Control, modules: CalcModule[], attempts: 
   const replacement = control === "DISTRIBUTED" && compare(originalExact, fraction(bestAttempt?.score ?? 0)) > 0 ? originalExact : fraction(bestAttempt?.score ?? 0);
   const semesterScore = sum(events);
   const total = control === "EXAM" ? add(semesterScore, fraction(bestAttempt?.score ?? 0)) : control === "DISTRIBUTED" ? add(subtract(semesterScore, originalExact), replacement) : semesterScore;
-  const effectiveFinalPassed = control === "DISTRIBUTED" && finalEvent ? !!finalEvent.result?.passed && !finalEvent.result.deleted || activeAttempts.some(attempt => attempt.passed) : true;
+  const effectiveFinalPassed = control === "DISTRIBUTED" && finalEvent ? completion(finalEvent) === "MET" || activeAttempts.some(attempt => attempt.score * 2 >= finalEvent.maxScore) : true;
   const remaining = events.filter(event => event.required && completion(event) !== "MET" && !(control === "DISTRIBUTED" && event.id === finalEvent?.id && effectiveFinalPassed));
   const missing = events.filter(event => !event.result || event.result.deleted || event.result.score === null).filter(event => !(control === "DISTRIBUTED" && event.id === finalEvent?.id && bestAttempt));
   const ready = !missing.length && !remaining.length && (control !== "EXAM" || !!bestAttempt) && effectiveFinalPassed;

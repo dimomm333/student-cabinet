@@ -1,46 +1,43 @@
 "use client";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { BrsWorkspace } from "@/lib/brs-repository";
-import type { BrsCommand } from "@/lib/brs-commands";
-import type { previewPrimaryScale } from "@/lib/brs-scales";
-import { converted, roundedHundredths } from "@/lib/brs-exact";
-import { parsePrimary, pointInput, points } from "@/lib/brs-rules";
+import { compare, converted, fraction, roundedHundredths } from "@/lib/brs-exact";
+import { halfPoints, parsePoints, parsePrimary, pointInput, points, resultPoints, timingLabels } from "@/lib/brs-rules";
+
 type Plan = NonNullable<BrsWorkspace["selected"]>;
 type Work = Plan["modules"][number]["events"][number];
 type Record = Plan["students"][number]["results"][number];
 export function ScoreFields({ event, result }: { event: Work; result?: Record }) {
-  const legacy = !!result && result.primaryMax === null;
-  const [mode, setMode] = useState(legacy ? "LEGACY" : "PRIMARY");
-  const [primary, setPrimary] = useState(pointInput(result?.deleted ? null : result?.primaryScore));
-  let preview: string = "Не выставлено";
-  try { if (primary && event.primaryMax) preview = points(roundedHundredths(converted(parsePrimary(primary), event.primaryMax, event.maxScore))); } catch { preview = "Проверьте ввод"; }
+  const existing = result && !result.deleted ? result : undefined;
+  const timed = ["HOMEWORK", "INTERIM", "FINAL"].includes(event.kind);
+  const [timing, setTiming] = useState(existing?.submissionTiming ?? "NOT_SUBMITTED");
+  const [value, setValue] = useState(pointInput(event.scoringMode === "PRIMARY" ? existing?.primaryScore : existing?.score));
+  const notSubmitted = timed && timing === "NOT_SUBMITTED", late = timed && timing === "LATE";
+  let preview = "Не оценено", success = "";
+  try {
+    const exact = late ? fraction(event.maxScore, 2) : !notSubmitted && value ? event.scoringMode === "PRIMARY" && event.primaryMax ? converted(parsePrimary(value), event.primaryMax, event.maxScore) : fraction(parsePoints(value)) : null;
+    if (exact) { preview = late ? halfPoints(event.maxScore) : points(roundedHundredths(exact)); success = compare(exact, fraction(event.maxScore, 2)) >= 0 ? "Успешно сдано" : "Менее 50% — не сдано успешно"; }
+  } catch { preview = "Проверьте ввод"; }
   return <div className="brs-score-fields">
-    {legacy ? <label className="brs-field"><span>Способ ввода</span><select name="scoringMode" value={mode} onChange={e => setMode(e.target.value)}><option value="LEGACY">Ранее выставленные рейтинговые баллы</option><option value="PRIMARY">Ввести реальные первичные баллы</option></select></label> : <input type="hidden" name="scoringMode" value="PRIMARY" />}
-    {mode === "LEGACY" ? <label className="brs-field"><span>{["INTERIM", "FINAL"].includes(event.kind) ? "Баллы РК — прежний рейтинговый результат" : "Прежние рейтинговые баллы"}</span><input aria-label="Прежние рейтинговые баллы" name="score" inputMode="decimal" defaultValue={pointInput(result?.deleted ? null : result?.score)} /></label> : <>
-      {!event.primaryMax && <p className="brs-error">Сначала настройте максимальный первичный балл работы.</p>}
-      <label className="brs-field"><span>{["INTERIM", "FINAL"].includes(event.kind) ? "Первичные баллы РК" : "Первичные баллы"} (максимум {points(event.primaryMax)})</span><input aria-label={event.kind === "INTERIM" || event.kind === "FINAL" ? "Первичные баллы РК" : "Первичные баллы"} name="primaryScore" inputMode="decimal" value={primary} onChange={e => setPrimary(e.target.value)} disabled={!event.primaryMax} /></label>
-      <p className="brs-score-preview" role="status">{event.kind === "INTERIM" || event.kind === "FINAL" ? "Рейтинговые баллы РК" : "Рейтинговые баллы"}: {preview} / {points(event.maxScore)}. Коэффициент: {points(event.maxScore)} / {points(event.primaryMax)}.</p>
-      {legacy && <><label><input type="checkbox" name="confirmConversion" required /> Подтверждаю переход на введённые первичные данные</label><label className="brs-field"><span>Основание перехода</span><textarea name="conversionReason" required minLength={5} maxLength={1000} /></label></>}
+    {existing?.score != null && <small className="brs-saved-score">Сохранено: {resultPoints(existing, event.maxScore)} / {points(event.maxScore)} БРС{existing.primaryMax != null ? ` · первичные ${points(existing.primaryScore)} / ${points(existing.primaryMax)}` : existing.scoreSource === "LATE" ? " · 50% за опоздание" : " · прямой рейтинг"}. Изменится только при сохранении этой формы.</small>}
+    <input type="hidden" name="scoringMode" value={event.scoringMode} />
+    {timed && <label className="brs-field"><span>Состояние сдачи</span><select aria-label="Состояние сдачи" name="submissionTiming" value={timing} onChange={e => setTiming(e.target.value)}>{Object.entries(timingLabels).map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></label>}
+    {notSubmitted ? <><p>Баллы не выставляются. Работа не считается выполненной.</p>{existing?.score != null && <label><input type="checkbox" name="confirmed" required /> Подтверждаю аннулирование сохранённого результата {points(existing.score)} БРС</label>}</> : late ? <p className="brs-score-preview" role="status">Итог БРС: {preview} / {points(event.maxScore)} — ровно 50% за сдачу с опозданием. Первичные баллы не создаются.</p> : <>
+      <label className="brs-field"><span>{event.scoringMode === "PRIMARY" ? "Первичные баллы" : "Баллы БРС"} / {points(event.scoringMode === "PRIMARY" ? event.primaryMax : event.maxScore)}</span><input name={event.scoringMode === "PRIMARY" ? "primaryScore" : "score"} aria-label={event.scoringMode === "PRIMARY" ? "Первичные баллы" : "Баллы БРС"} inputMode="decimal" required={timed} value={value} onChange={e => setValue(e.target.value)} /></label>
+      {event.scoringMode === "PRIMARY" && <p className="brs-score-preview" role="status">Итог БРС: {preview} / {points(event.maxScore)}</p>}
     </>}
+    {timed && !notSubmitted && <small>{success}</small>}
   </div>;
 }
-export function ScaleFields({ event, command, busy }: { event: Work; command: Partial<BrsCommand>; busy: boolean }) {
-  const [maximum, setMaximum] = useState(pointInput(event.primaryMax)), [preview, setPreview] = useState<Awaited<ReturnType<typeof previewPrimaryScale>> | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(false);
-  const generation = useRef(0);
-  async function inspect() {
-    setLoading(true); setError(""); const tag = ++generation.current;
-    try {
-      const response = await fetch("/api/brs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...command, operation: "PREVIEW_SCALE", requestId: crypto.randomUUID(), primaryMax: parsePrimary(maximum) }) });
-      const data = await response.json(); if (!response.ok) throw new Error(data.error);
-      if (tag === generation.current) setPreview(data.preview);
-    } catch (e) { setError(e instanceof Error ? e.message : "Ошибка проверки."); } finally { setLoading(false); }
-  }
+export function ScaleFields({ event, busy }: { event: Work; busy: boolean }) {
+  const [mode, setMode] = useState(event.scoringMode);
+  const [maximum, setMaximum] = useState(pointInput(event.primaryMax));
+  let valid = mode === "RATING";
+  try { if (mode === "PRIMARY") valid = parsePrimary(maximum) > 0; } catch { valid = false; }
   return <>
-    <label className="brs-field"><span>Максимальный первичный балл</span><input name="primaryMax" aria-label="Максимальный первичный балл" inputMode="decimal" required value={maximum} onChange={e => { generation.current++; setMaximum(e.target.value); setPreview(null); }} /></label>
-    <p>Рейтинговый максимум: {points(event.maxScore)}. Он закреплён планом и не изменяется. Коэффициент пересчёта: {points(event.maxScore)} / {maximum || "—"}.</p>
-    <button type="button" disabled={loading || busy} onClick={inspect}>{loading ? "Проверка…" : "Проверить последствия"}</button>
-    {error && <p role="alert" className="brs-error">{error}</p>}
-    {preview && <><p>Прежние прямые рейтинговые результаты: {preview.legacyCount}. Их баллы останутся без пересчёта.</p><div className="brs-scroll"><table className="brs-table"><thead><tr><th>Студент</th><th>Работа до → после</th><th>Рейтинг до → после</th></tr></thead><tbody>{preview.rows.map(row => <tr key={row.resultId}><td>{row.name}</td><td>{points(row.before)} → {points(row.after)}</td><td>{points(row.totalBefore)} → {points(row.totalAfter)}</td></tr>)}</tbody></table></div>{preview.requiresConfirmation && <><label><input type="checkbox" name="confirmed" required /> Подтверждаю последствия пересчёта</label><label className="brs-field"><span>Основание изменения шкалы</span><textarea aria-label="Основание изменения шкалы" name="scaleReason" required minLength={5} maxLength={1000} /></label></>}</>}
-    <button className="button button-primary" disabled={busy || loading || !preview} type="submit">Сохранить шкалу</button>
+    <label className="brs-field"><span>Способ выставления баллов</span><select name="scoringMode" aria-label="Способ выставления баллов" value={mode} onChange={e => setMode(e.target.value)}><option value="PRIMARY">По первичным баллам</option><option value="RATING">По рейтинговым баллам</option></select></label>
+    {mode === "PRIMARY" && <label className="brs-field"><span>Максимальный первичный балл</span><input name="primaryMax" aria-label="Максимальный первичный балл" inputMode="decimal" required value={maximum} onChange={e => setMaximum(e.target.value)} /></label>}
+    <p>Максимум БРС: {points(event.maxScore)}</p><small>Настройка применяется к новым оценкам и явным исправлениям. Сохранённые результаты остаются прежними.</small>
+    <button className="button button-primary" type="submit" disabled={busy || !valid}>{busy ? "Сохранение…" : "Сохранить"}</button>
   </>;
 }

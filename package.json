@@ -7,6 +7,7 @@
     "node": "^22.18.0 || ^24.0.0 || ^26.0.0"
   },
   "scripts": {
+    "db:brs:grading": "node --env-file-if-exists=.env scripts/prepare-brs-grading.mjs --apply",
     "db:brs:refine": "node --env-file-if-exists=.env scripts/prepare-brs-primary.mjs --apply",
     "db:brs": "node --env-file-if-exists=.env scripts/prepare-brs.mjs --apply",
     "db:brs:seed": "node --env-file-if-exists=.env --conditions=react-server scripts/seed-brs.mjs",

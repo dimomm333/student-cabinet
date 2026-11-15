@@ -886,7 +886,19 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-dialog { border: 0; border-radius: 18px; padding: 24px; width: min(640px,calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; color: #233b31; background: #fcfdf9; box-shadow: 0 24px 80px #142b3450; }
 .brs-dialog { position: fixed; inset: 0; margin: auto; overscroll-behavior: contain; }
 .brs-course-details, .brs-score-fields { min-width: 0; display: grid; gap: 14px; }
-.brs-student-full [data-module-total] { background: #eaf1e5; border-left: 2px solid #aabd9d; }
+.brs-module-summary { display: block; margin-top: 7px; padding: 5px 8px; border: 1px solid #9ab5a5; border-radius: 5px; background: #f1f6f2; font-size: 12px; font-weight: 600; }
+.brs-workspace .brs-gear { padding: 2px 6px; border-color: transparent; background: transparent; font-size: 17px; }
+.brs-dialog-compact { width: min(420px,calc(100vw - 16px)); padding: 20px; }
+.brs-dialog-compact:has(.brs-attendance-menu) { width: min(290px,calc(100vw - 16px)); padding: 14px; }
+.brs-attendance-menu { display: grid; gap: 5px; }
+.brs-attendance-menu button { text-align: left; padding: 8px 10px; }
+.brs-attendance-menu button:hover { background: #edf4ef; }
+.brs-table .brs-cell:empty { min-height: 35px; }
+.brs-event-list { display: grid; gap: 10px; margin-top: 12px; }
+.brs-list-event { display: grid; gap: 6px; border-bottom: 1px solid #e0e7e2; padding: 10px 0; }
+.brs-progress-cell { display: grid; gap: 4px; text-align: left; }
+.brs-saved-score { line-height: 1.5; color: #5a6e62; }
+.brs-workspace .brs-section-title { font-size: 16px; margin: 16px 0 10px; }
 .brs-student-full .brs-column-active { background: #fff1d2; box-shadow: inset 0 2px #e0b75c; }
 .brs-table .brs-score-preview { white-space: normal; }
 .brs-dialog::backdrop { background: #162f3866; }
@@ -910,3 +922,49 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
   .brs-table .brs-sticky { min-width: 130px; max-width: 160px; }
   .brs-dialog { padding: 18px; }
 }
+/* Student progress only: compact rows, contextual states and transient feedback. */
+.brs-student-progress { display: grid; gap: 20px; min-width: 0; }
+.brs-workspace .brs-student-section-heading, .brs-student-group > h2 { font-size: 20px; font-weight: 650; line-height: 1.3; color: #214d3d; margin: 0; }
+.brs-student-group { display: grid; gap: 12px; min-width: 0; }
+.brs-student-progress .brs-course-heading { margin: 0; font-size: 16px; line-height: 1.3; font-weight: 650; color: #234f3e; white-space: normal; overflow-wrap: anywhere; }
+.brs-course-heading > span { display: block; }
+.brs-student-progress .brs-course-heading small { display: block; margin-top: 3px; font-size: 11px; font-weight: 500; color: #60766a; }
+.brs-student-progress .brs-panel { padding: 14px; }
+.brs-student-progress summary { border-left: 3px solid #a7c1b3; padding: 3px 0 3px 10px; margin-bottom: 10px; }
+.brs-student-progress details:not([open]) summary { margin-bottom: 0; }
+.brs-student-progress summary .brs-course-heading { display: inline-block; vertical-align: middle; }
+.brs-student-progress .brs-full .brs-table th, .brs-student-progress .brs-full .brs-table td { padding: 8px; vertical-align: top; }
+.brs-student-progress .brs-full .brs-sticky { min-width: 175px; width: 175px; max-width: 175px; vertical-align: middle; }
+.brs-student-progress .brs-full .brs-course-heading { font-size: 15px; }
+.brs-student-full thead th:not(.brs-sticky) { min-width: 118px; }
+.brs-student-progress .brs-week-event { margin: 0 0 5px; gap: 0; }
+.brs-student-progress .brs-week-event:last-child { margin-bottom: 0; }
+.brs-student-progress .brs-progress-cell { display: block; padding: 6px 7px; min-width: 90px; width: 100%; border-radius: 6px; text-align: left; font-size: 12px; line-height: 1.35; white-space: normal; }
+.brs-student-progress .brs-progress-cell > span > strong { display: inline; margin-right: 4px; }
+.brs-student-progress .brs-progress-cell > span > span { white-space: nowrap; }
+.brs-student-progress .brs-progress-cell:has(.brs-module-summary) > span > strong { display: block; margin: 0 0 2px; }
+.brs-student-progress .brs-progress-cell small { display: block; margin-top: 2px; }
+.brs-student-progress .brs-module-summary { margin-top: 4px; padding: 3px 5px; font-size: 11px; white-space: nowrap; border-radius: 4px; }
+.brs-student-progress .brs-academic-complete { background: #edf6ef; border: 1px solid #a8c6b1; color: #28573d; }
+.brs-student-progress .brs-academic-failed { background: #fff0ee; border: 1px solid #dbada5; color: #813f35; }
+.brs-student-progress .brs-academic-pending { background: #f4f5f4; border: 1px solid #cbd2cd; color: #53645b; }
+.brs-semester-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; width: fit-content; max-width: 100%; font-size: 11px; line-height: 1.4; padding: 4px 6px; border-radius: 4px; margin: 5px 0; }
+.brs-student-progress .brs-table tbody tr:hover td, .brs-student-progress .brs-table td:focus-within, .brs-student-progress .brs-table th:focus-within { background: transparent; }
+.brs-student-progress table.brs-student-full tbody tr .brs-column-active, .brs-student-progress .brs-student-full thead .brs-column-active { background: #f0f4f2; box-shadow: none; }
+.brs-student-progress .brs-progress-cell:focus-visible, .brs-student-progress .brs-list-open:focus-visible { outline: 2px solid #426f5b; outline-offset: 2px; }
+.brs-student-progress .brs-progress-cell:focus:not(:focus-visible), .brs-student-progress .brs-list-open:focus:not(:focus-visible) { outline: none; }
+@media (hover:hover) { .brs-student-progress .brs-progress-cell:hover { border-color: #527d69; background: #edf5f0; box-shadow: inset 0 0 0 1px #527d69; } }
+.brs-student-progress .brs-compact > details .brs-course-list { table-layout: fixed; white-space: normal; margin-top: 12px; font-size: 12px; }
+.brs-student-progress .brs-compact > details .brs-course-list th, .brs-student-progress .brs-compact > details .brs-course-list td { padding: 7px 5px; vertical-align: middle; overflow-wrap: anywhere; }
+.brs-student-progress .brs-compact > details .brs-course-list thead th:nth-child(1) { width: 56px; }
+.brs-student-progress .brs-compact > details .brs-course-list thead th:nth-child(2) { width: 86px; }
+.brs-student-progress .brs-compact > details .brs-course-list thead th:nth-child(3) { width: auto; }
+.brs-student-progress .brs-list-open { padding: 5px 0; border: 0; border-radius: 3px; background: transparent; text-align: left; font-size: 12px; font-weight: 650; min-height: 30px; }
+.brs-course-list tr[data-work] { cursor: pointer; height: 44px; }
+.brs-student-progress .brs-course-list tr[data-work]:hover, .brs-course-list tr[data-work]:has(:focus-visible) { background: #f0f5f2; }
+.brs-course-list .brs-module-summary { width: fit-content; max-width: 100%; }
+.brs-student-progress .brs-seminar-summary th { font-size: 11px; line-height: 1.3; }
+.brs-course-outcome { display: grid; gap: 4px; font-size: 11px; margin-top: 8px; }
+.brs-student-attendance-hint { position: fixed; margin: 0; inset: auto; width: min(280px,calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow: auto; padding: 14px; border: 1px solid #b5c9bd; border-radius: 10px; background: #fcfdf9; color: #234c3b; box-shadow: 0 8px 25px #183c3026; font-size: 14px; }
+.brs-student-attendance-hint > button { float: right; padding: 0 6px; margin-left: 8px; border: 0; background: transparent; }
+.brs-student-attendance-hint > small { display: block; margin-top: 6px; color: #607469; }

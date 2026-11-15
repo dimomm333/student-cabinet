@@ -5,8 +5,8 @@ import { authorizePlan, calculateStudent, fail, freshActor, planInclude, student
 import { requireDeaneryGroup } from "./deanery-repository.ts";
 import { brsSchedule, moduleWeeks, syncOccurrences } from "./brs-schedule.ts";
 import { controlLabels, template, distribute, type Control, labLabels, attendanceLabels, timingLabels } from "./brs-rules.ts";
-import { converted, roundedHundredths } from "./brs-exact.ts";
-import { previewPrimaryScale } from "./brs-scales.ts";
+import { compare, converted, fraction, roundedHundredths } from "./brs-exact.ts";
+import { gradingSettings } from "./brs-scales.ts";
 import { isoDate, mondayOf, parseCalendarDate, WEEK_MS } from "./schedule-calendar.ts";
 
 export type BrsCommand = { operation: string; requestId: string; planId?: string; revision?: number;
@@ -157,23 +157,16 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
         const event = plan.modules.flatMap(brsModule => brsModule.events).find(event => event.id === command.eventId);
         if (event && command.moduleId && command.moduleId !== event.moduleId) fail("Мероприятие не относится к указанному модулю.");
         const brsModule = plan.modules.find(brsModule => brsModule.id === (event?.moduleId ?? command.moduleId));
-        if (["PREVIEW_SCALE", "PRIMARY_SCALE"].includes(command.operation)) {
+        if (["GRADING_SETTINGS", "PRIMARY_SCALE"].includes(command.operation)) {
           role(actor, "TEACHER");
           if (!event || !plan.publishedAt) fail("Выберите мероприятие опубликованного плана.");
           if (command.maxScore !== undefined && command.maxScore !== event.maxScore) fail("Рейтинговый максимум зафиксирован планом и недоступен преподавателю для изменения.");
           version(command.scaleVersion, event.scaleVersion);
-          const preview = await previewPrimaryScale(tx, plan, event.id, command.primaryMax!);
-          if (command.operation === "PREVIEW_SCALE") return { objectId: event.id, planId: plan.id, preview, message: "Предпросмотр пересчёта." };
-          if (preview.requiresConfirmation) { requireReason(command); if (!command.confirmed) fail("Подтвердите последствия изменения первичной шкалы."); }
-          if (preview.rows.some(row => row.authorId !== actor.id)) fail("Изменение шкалы затронет чужие результаты. Обратитесь к их автору.", 403);
-          before = { event, results: await tx.brsResult.findMany({ where: { eventId: event.id } }) };
-          await tx.brsEvent.update({ where: { id: event.id }, data: { primaryMax: command.primaryMax, scaleVersion: { increment: 1 } } });
-          for (const row of preview.rows) {
-            await tx.brsResult.update({ where: { id: row.resultId }, data: { primaryMax: command.primaryMax, score: row.after, version: { increment: 1 } } });
-            if (row.before !== row.after || event.primaryMax !== command.primaryMax && row.primaryScore !== null && row.primaryScore !== 0) await tx.brsFinal.updateMany({ where: { planId: plan.id, studentId: row.studentId }, data: { needsReview: true, version: { increment: 1 } } });
-          }
-          after = { preview, event: await tx.brsEvent.findUnique({ where: { id: event.id } }), results: await tx.brsResult.findMany({ where: { eventId: event.id } }) }; objectId = event.id;
-          if (plan.control === "EXAM") for (const row of preview.rows) await reconcileAdmission(tx, actor, command, plan, row.studentId, hash);
+          if (event.kind === "SEMINAR") fail("Семинарские баллы определяются посещаемостью.");
+          const settings = gradingSettings(command.scoringMode ?? "PRIMARY", command.primaryMax);
+          before = event;
+          after = await tx.brsEvent.update({ where: { id: event.id }, data: { ...settings, scaleVersion: { increment: 1 } } });
+          objectId = event.id;
         } else if (["EDIT_EVENT", "ADD_WORK", "REMOVE_WORK"].includes(command.operation)) {
           role(actor, "DEANERY_STAFF");
           if (plan.publishedAt) fail("Опубликованный план неизменяем. Максимумы и история сохранены.");
@@ -267,26 +260,31 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
                 if (!existingResult || !command.confirmed) fail("Подтвердите удаление существующей записи.");
                 after = await tx.brsResult.update({ where: { id: existingResult.id }, data: { deleted: true, version: { increment: 1 } } });
               } else {
-                const mode = command.scoringMode ?? (existingResult?.primaryMax != null ? "PRIMARY" : existingResult ? "LEGACY" : "PRIMARY");
-                if (!["LEGACY", "PRIMARY"].includes(mode)) fail("Выберите способ ввода баллов.");
-                let primaryScore: number | null = null, primaryMax: number | null = null, score: number | null;
-                if (mode === "PRIMARY") {
-                  if (!event.primaryMax) fail("Сначала настройте максимальный первичный балл работы.");
-                  if (existingResult && existingResult.primaryMax === null && existingResult.score !== null) { requireReason(command); if (!command.confirmed) fail("Подтвердите переход ранее выставленного результата на первичную шкалу."); }
-                  primaryMax = event.primaryMax;
-                  primaryScore = command.primaryScore === null ? null : integer(command.primaryScore, 0, primaryMax);
-                  score = primaryScore === null ? null : roundedHundredths(converted(primaryScore, primaryMax, event.maxScore));
-                } else {
-                  if (!existingResult || existingResult.primaryMax !== null) fail("Прямой рейтинговый ввод доступен только для сохранения прежних записей.");
-                  score = validScore(command.score, event.maxScore);
-                }
-                const submissionTiming = command.submissionTiming === undefined ? existingResult?.submissionTiming ?? null : command.submissionTiming;
+                const timed = ["HOMEWORK", "INTERIM", "FINAL"].includes(event.kind);
+                const submissionTiming = timed ? command.submissionTiming ?? "NOT_SUBMITTED" : null;
                 if (submissionTiming != null && !Object.hasOwn(timingLabels, submissionTiming)) fail("Выберите состояние сдачи работы.");
-                if (event.kind === "HOMEWORK" && score !== null && !submissionTiming) fail("Выберите состояние сдачи ДЗ вручную.");
-                if (![true, false, null, undefined].includes(command.passed)) fail("Укажите успешность РК.");
+                const mode = command.scoringMode ?? event.scoringMode;
+                if (mode !== event.scoringMode) fail("Способ ввода изменился. Откройте форму заново.", 409);
+                let primaryScore: number | null = null, primaryMax: number | null = null, score: number | null = null;
+                let exact = null, scoreSource = event.scoringMode;
+                if (timed && submissionTiming === "NOT_SUBMITTED") {
+                  if (existingResult?.score != null && !existingResult.deleted && !command.confirmed) fail("Подтвердите аннулирование ранее выставленного результата.");
+                } else if (timed && submissionTiming === "LATE") {
+                  exact = fraction(event.maxScore, 2); scoreSource = "LATE";
+                } else if (mode === "PRIMARY") {
+                  if (!event.primaryMax) fail("Сначала настройте максимальный первичный балл работы.");
+                  primaryMax = event.primaryMax;
+                  primaryScore = command.primaryScore == null ? null : integer(command.primaryScore, 0, primaryMax);
+                  if (primaryScore !== null) exact = converted(primaryScore, primaryMax, event.maxScore);
+                } else if (mode === "RATING") {
+                  score = validScore(command.score ?? null, event.maxScore);
+                  if (score !== null) exact = fraction(score);
+                } else fail("Выберите способ выставления баллов.");
+                if (exact) score = roundedHundredths(exact);
+                const passed = timed ? score === null || submissionTiming === "NOT_SUBMITTED" ? null : compare(exact!, fraction(event.maxScore, 2)) >= 0 : null;
                 const labStatus = command.labStatus === undefined ? existingResult?.labStatus ?? null : command.labStatus;
                 if (labStatus != null && !Object.hasOwn(labLabels, labStatus) && !(labStatus === "IN_PROGRESS" && existingResult?.labStatus === labStatus)) fail("Некорректный статус ЛР.");
-                const values = { score, primaryScore, primaryMax, submissionTiming, passed: command.passed ?? null, labStatus, submittedOn: date(command.submittedOn), checkedOn: date(command.checkedOn), performedOn: date(command.performedOn), defendedOn: date(command.defendedOn), comment: text(command.comment ?? ""), commentVisible: command.commentVisible === true, deleted: false };
+                const values = { score, primaryScore, primaryMax, scoreSource, exactNumerator: exact ? String(exact.n) : null, exactDenominator: exact ? String(exact.d) : null, submissionTiming, passed, labStatus, submittedOn: command.submittedOn === undefined ? existingResult?.submittedOn ?? null : date(command.submittedOn), checkedOn: command.checkedOn === undefined ? existingResult?.checkedOn ?? null : date(command.checkedOn), performedOn: date(command.performedOn), defendedOn: date(command.defendedOn), comment: text(command.comment ?? ""), commentVisible: command.commentVisible === true, deleted: false };
                 if (values.checkedOn && values.submittedOn && values.checkedOn < values.submittedOn) fail("Проверка не может предшествовать сдаче.");
                 if (values.defendedOn && (!values.performedOn || values.defendedOn < values.performedOn)) fail("Защита не может предшествовать выполнению ЛР.");
                 after = existingResult ? await tx.brsResult.update({ where: { id: existingResult.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsResult.create({ data: { ...values, eventId: event.id, studentId, authorId: actor.id } });
@@ -332,7 +330,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
                 if ((!existingAttempt || existingAttempt.deleted) && plan.control === "EXAM" && current.calculation.admissionStatus !== "Допущен") fail(`Экзамен недоступен: ${current.calculation.admissionStatus}.`);
                 const score = integer(command.score, 0, current.calculation.examMax);
                 const heldOn = date(command.heldOn); if (!heldOn || typeof command.passed !== "boolean") fail("Укажите фактическую дату и успешность попытки.");
-                const values = { score, passed: command.passed, heldOn, comment: text(command.comment ?? ""), commentVisible: command.commentVisible === true, deleted: false };
+                const values = { score, passed: plan.control === "DISTRIBUTED" ? score * 2 >= current.calculation.examMax : command.passed, heldOn, comment: text(command.comment ?? ""), commentVisible: command.commentVisible === true, deleted: false };
                 after = existingAttempt ? await tx.brsExamAttempt.update({ where: { id: existingAttempt.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsExamAttempt.create({ data: { ...values, planId: plan.id, studentId, authorId: actor.id, admissionVersion: plan.control === "EXAM" ? current.admission!.version : null, number: (await tx.brsExamAttempt.aggregate({ where: { planId: plan.id, studentId }, _max: { number: true } }))._max.number! + 1 || 1 } });
               }
             } else if (command.operation === "FINALIZE") {
