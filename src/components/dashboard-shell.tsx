@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useRef } from "react";
 import { sections } from "@/lib/demo-data";
 import { Brand } from "./brand";
@@ -11,6 +11,7 @@ import { ProfileLink } from "./profile-link";
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <nav aria-label="Разделы кабинета" className="sidebar-nav">
@@ -32,7 +33,13 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             return (
               <Link
                 key={item.slug}
-                onClick={onNavigate}
+                onClick={event => {
+                  if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && ["grades", "session"].includes(item.slug) && ["/dashboard/grades", "/dashboard/session"].includes(pathname)) {
+                    const planId = new URLSearchParams(window.location.search).get("planId");
+                    if (planId) { event.preventDefault(); router.push(href + "?planId=" + encodeURIComponent(planId)); }
+                  }
+                  onNavigate?.();
+                }}
                 href={href}
                 className={"nav-item" + (active ? " active" : "")}
                 aria-current={active ? "page" : undefined}

@@ -25,11 +25,12 @@ function date(value: unknown): Date | null { if (value === null || value === und
 function integer(value: unknown, min: number, max: number) { if (!Number.isInteger(value) || Number(value) < min || Number(value) > max) fail("Значение вне допустимого диапазона."); return value as number; }
 function version(expected: number | undefined, actual: number) { if (expected !== actual) fail("Данные изменились. Обновите страницу и повторите действие.", 409); }
 function requireReason(command: BrsCommand) { const reason = text(command.reason ?? ""); if (reason.length < 5) fail("Укажите причину изменения (не менее 5 символов)."); return reason; }
+function requireConfirmation(command: BrsCommand) { if (command.confirmed !== true) fail("Подтвердите действие. Изменение будет сохранено в аудите."); }
 function role(actor: BrsActor, expected: string) { if (actor.role !== expected) fail("Операция недоступна вашей роли.", 403); }
 function validScore(value: unknown, max: number): number | null { return value === null ? null : integer(value, 0, max); }
 async function audit(db: BrsDB, actor: BrsActor, command: BrsCommand, objectId: string, before: unknown, after: unknown, hash: string, planId?: string, action = command.operation) {
   await db.brsAudit.create({ data: { actorId: actor.id, requestId: command.requestId, commandHash: hash, objectId, planId, action,
-    beforeJson: json(before), afterJson: json(after), reason: command.reason ?? "" } });
+    beforeJson: json(before), afterJson: json(after), reason: text(command.reason ?? "") } });
 }
 async function reconcileAdmission(tx: BrsDB, actor: BrsActor, command: BrsCommand, plan: FullPlan, studentId: string, hash: string) {
   const current = await calculateStudent(tx, plan, studentId);
@@ -239,14 +240,14 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
                   : command.operation === "ATTENDANCE" ? existingAttendance?.authorId === actor.id : false);
             await studentInPlan(tx, actor, plan, studentId, historicalCorrection);
             const official = await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: plan.id, studentId } } });
-            if (official && ["RESULT", "DELETE_RESULT", "ATTEMPT", "DELETE_ATTEMPT"].includes(command.operation)) requireReason(command);
+            if (official && ["RESULT", "DELETE_RESULT", "ATTEMPT", "DELETE_ATTEMPT"].includes(command.operation)) requireConfirmation(command);
             if (command.operation === "RESULT" || command.operation === "DELETE_RESULT") {
               role(actor, "TEACHER");
               if (!event || !brsModule) fail("Мероприятие недоступно.");
               if (event.kind === "SEMINAR") fail("Семинарские баллы определяются посещаемостью. Измените отметку занятия.");
               if (existingResult && existingResult.authorId !== actor.id) fail("Изменять чужую запись запрещено.", 403);
               version(command.version, existingResult?.version ?? 0);
-              if (brsModule.state === "CLOSED") requireReason(command);
+              if (brsModule.state === "CLOSED") requireConfirmation(command);
               if (event.occurrenceId) {
                 const occurrence = plan.occurrences.find(item => item.id === event.occurrenceId)!;
                 const live = (await brsSchedule(tx, plan)).find(pair => pair.sourceKey === occurrence.sourceKey);
@@ -295,9 +296,9 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               if (!occurrence) fail("Занятие недоступно.");
               const live = (await brsSchedule(tx, plan)).find(pair => pair.sourceKey === occurrence.sourceKey);
               if (!live || live.cancelled) fail("За отменённое занятие посещаемость не требуется. Существующие отметки сохранены.");
-              if (plan.modules.some(item => item.state === "CLOSED" && live.week >= item.startWeek && live.week <= item.endWeek)) requireReason(command);
+              if (plan.modules.some(item => item.state === "CLOSED" && live.week >= item.startWeek && live.week <= item.endWeek)) requireConfirmation(command);
               const changesSeminar = plan.modules.some(item => item.events.some(event => event.kind === "SEMINAR" && event.occurrenceId === occurrence.id)) && existingAttendance?.mark !== (command.mark ?? null);
-              if (official && changesSeminar) requireReason(command);
+              if (official && changesSeminar) requireConfirmation(command);
               if (existingAttendance && existingAttendance.authorId !== actor.id) fail("Изменять чужую отметку запрещено.", 403);
               version(command.version, existingAttendance?.version ?? 0);
               if (command.mark != null && !Object.hasOwn(attendanceLabels, command.mark)) fail("Некорректная отметка.");
@@ -320,7 +321,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               if (command.attemptId && !existingAttempt) fail("Попытка недоступна.", 403);
               if (existingAttempt && existingAttempt.authorId !== actor.id) fail("Изменять чужую попытку запрещено.", 403);
               version(command.version, existingAttempt?.version ?? 0);
-              if (existingAttempt) requireReason(command);
+              if (existingAttempt) requireConfirmation(command);
               const current = await calculateStudent(tx, plan, studentId);
               before = existingAttempt;
               if (command.operation === "DELETE_ATTEMPT") {
@@ -335,7 +336,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               }
             } else if (command.operation === "FINALIZE") {
               role(actor, "TEACHER");
-              if (official) requireReason(command);
+              requireConfirmation(command);
               version(command.version, official?.version ?? 0);
               const current = await calculateStudent(tx, plan, studentId);
               if (!current.calculation.ready) fail("Для фиксации завершите обязательные работы, выставление баллов, модули и предусмотренный экзамен.");

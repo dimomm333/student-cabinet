@@ -2,7 +2,7 @@ import "server-only";
 import type { Prisma, PrismaClient } from "../generated/prisma/client.ts";
 import { deaneryGroupWhere, requireDeaneryGroup } from "./deanery-repository.ts";
 import { isSessionWithinLifetime } from "./session-policy.ts";
-import { calculateBrs, effectiveModules, workStatus } from "./brs-rules.ts";
+import { calculateBrs, effectiveModules, numberControlModules, officialState, workStatus } from "./brs-rules.ts";
 import { brsSchedule } from "./brs-schedule.ts";
 import { isoDate, currentAcademicDate, academicWeeks } from "./schedule-calendar.ts";
 
@@ -52,7 +52,7 @@ export async function calculateStudent(db: BrsDB, plan: FullPlan, studentId: str
   const admission = await db.brsAdmission.findUnique({ where: { planId_studentId: { planId: plan.id, studentId } } });
   const attendance = bounded(await db.brsAttendance.findMany({ where: { studentId, occurrence: { planId: plan.id } } }), 5000);
   const modules = effectiveModules(plan.modules, results, attendance);
-  return { calculation: calculateBrs(plan.control, modules, attempts, admission), results, attempts, admission, attendance, modules };
+  return { calculation: calculateBrs(plan.control, modules, attempts, admission, isoDate(currentAcademicDate())), results, attempts, admission, attendance, modules };
 }
 export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId = "") {
   return db.$transaction(async tx => {
@@ -100,17 +100,17 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
         cancelled: !live || live.cancelled, changed: !!live && (live.date !== isoDate(occurrence.date) || live.startMinute !== occurrence.startMinute), conflict: !live || live.cancelled || live.kind !== occurrence.kind };
     });
     const history = actor.role === "DEANERY_STAFF" ? await tx.brsAudit.findMany({ where: { planId: plan.id, action: { in: ["CONFIRM", "REVOKE", "INVALIDATE"] }, objectId: { in: studentIds } }, select: { id: true, objectId: true, action: true, reason: true, createdAt: true, actor: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 201 }) : [];
+    const today = isoDate(currentAcademicDate());
     const students = roster.map(student => {
       const studentResults = safeResults.filter(result => result.studentId === student.id);
       const studentAttempts = safeAttempts.filter(attempt => attempt.studentId === student.id);
       const admission = admissions.find(item => item.studentId === student.id) ?? null;
       const modules = effectiveModules(plan.modules, studentResults, attendance.filter(item => item.studentId === student.id));
+      const calculation = calculateBrs(plan.control, modules, studentAttempts, admission, today);
       return { id: student.id, name: student.name, former: student.studentProfile?.groupId !== plan.groupId, results: studentResults, attempts: studentAttempts, admission,
-        attendance: attendance.filter(item => item.studentId === student.id), official: finals.find(item => item.studentId === student.id) ?? null,
-        calculation: calculateBrs(plan.control, modules, studentAttempts, admission) };
+        attendance: attendance.filter(item => item.studentId === student.id), official: officialState(finals.find(item => item.studentId === student.id) ?? null, calculation), calculation };
     });
-    const today = isoDate(currentAcademicDate());
-    const modules = plan.modules.map(brsModule => ({ ...brsModule, events: brsModule.events.map(event => ({ ...event,
+    const modules = numberControlModules(plan.modules).map(brsModule => ({ ...brsModule, events: brsModule.events.map(event => ({ ...event,
       actualOn: event.occurrenceId ? occurrences.find(occurrence => occurrence.id === event.occurrenceId)?.actualDate ?? (event.plannedOn ? isoDate(event.plannedOn) : null) : event.plannedOn ? isoDate(event.plannedOn) : null,
       scheduleConflict: !!event.occurrenceId && !!occurrences.find(occurrence => occurrence.id === event.occurrenceId)?.conflict,
     })) }));
@@ -125,12 +125,12 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
           const live = ownSchedule.find(pair => pair.sourceKey === item.sourceKey);
           return { id: item.id, actualDate: live?.date ?? isoDate(item.date), actualStart: live?.startMinute ?? item.startMinute, actualEnd: live?.endMinute ?? item.endMinute, cancelled: !live || live.cancelled };
         }),
-        modules: own.modules.map(brsModule => ({ id: brsModule.id, number: brsModule.number, startWeek: brsModule.startWeek, endWeek: brsModule.endWeek, events: brsModule.events.map(event => ({
+        modules: numberControlModules(own.modules).map(brsModule => ({ id: brsModule.id, number: brsModule.number, startWeek: brsModule.startWeek, endWeek: brsModule.endWeek, events: brsModule.events.map(event => ({
           ...event, result: event.result && !event.result.deleted ? { score: event.result.score, scoreSource: event.result.scoreSource, primaryScore: event.result.primaryScore ?? null, primaryMax: event.result.primaryMax ?? null, labStatus: event.result.labStatus, defendedOn: event.result.defendedOn ?? null } : null,
           score: event.result && !event.result.deleted ? event.result.score : null, status: workStatus(event, event.result),
           comment: own.results.find(result => result.eventId === event.id && !result.deleted && result.commentVisible)?.comment ?? "",
         })) })),
-        official: await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: course.id, studentId: actor.id } }, select: { grade: true, rating: true, needsReview: true } }) });
+        official: officialState(await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: course.id, studentId: actor.id } }, select: { score: true, grade: true, rating: true, needsReview: true } }), own.calculation) });
     }
     return { role: actor.role, actorId: actor.id, plans, catalog, overview, selected: { ...plan, modules, occurrences, students, schedule, history,
       weeks: academicWeeks(isoDate(plan.term.startsOn), isoDate(plan.term.endsOn)), today } };
