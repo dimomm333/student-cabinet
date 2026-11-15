@@ -3,8 +3,8 @@ import type { IconName } from "@/components/icon";
 export const sections: { slug: string; title: string; icon: IconName; description: string; group: string }[] = [
   { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные студента и сведения об обучении.", group: "Учёба" },
   { slug: "schedule", title: "Моё расписание", icon: "calendar", description: "Здесь появится полное расписание занятий с выбором недели, аудиториями и преподавателями.", group: "Учёба" },
-  { slug: "session", title: "Сессия", icon: "book", description: "Здесь будут расписание экзаменов и зачётов, консультации и результаты сессии.", group: "Учёба" },
-  { slug: "grades", title: "Успеваемость", icon: "chart", description: "Здесь можно будет посмотреть оценки по дисциплинам и отслеживать учебный прогресс.", group: "Учёба" },
+  { slug: "session", title: "Сессия", icon: "book", description: "Допуски, экзаменационные попытки, предварительные и утверждённые результаты БРС.", group: "Учёба" },
+  { slug: "grades", title: "Успеваемость", icon: "chart", description: "Модули, ДЗ, лабораторные, рубежные контроли, посещаемость и баллы.", group: "Учёба" },
   { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Здесь будут лекции, задания и материалы для самостоятельной работы.", group: "Учёба" },
   { slug: "services", title: "Услуги", icon: "grid", description: "Здесь можно будет заказать справку и обратиться в университетские службы.", group: "Кампус" },
   { slug: "notifications", title: "Уведомления", icon: "bell", description: "Здесь появится история уведомлений об учёбе и событиях университета.", group: "Кампус" },

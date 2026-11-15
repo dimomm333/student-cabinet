@@ -7,6 +7,9 @@
     "node": "^22.18.0 || ^24.0.0 || ^26.0.0"
   },
   "scripts": {
+    "db:brs": "node --env-file-if-exists=.env scripts/prepare-brs.mjs --apply",
+    "db:brs:seed": "node --env-file-if-exists=.env --conditions=react-server scripts/seed-brs.mjs",
+    "test:brs": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-brs.mjs",
     "db:student-profile": "node --env-file-if-exists=.env scripts/prepare-student-profile.mjs --apply",
     "db:student-photo": "node --env-file-if-exists=.env scripts/set-student-photo.mjs",
     "test:student-photo": "node scripts/verify-student-photo.mjs",

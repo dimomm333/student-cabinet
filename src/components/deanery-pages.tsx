@@ -20,7 +20,8 @@ async function HomeContent() {
       <Link href="/deanery/students" className="panel workspace-card"><h2>Студенты</h2><strong className="deanery-count">{model.students}</strong><p>В назначенных подразделениях</p></Link>
       <Link href="/deanery/groups" className="panel workspace-card"><h2>Учебные группы</h2><strong className="deanery-count">{model.groups}</strong><p>В назначенных подразделениях</p></Link>
       <Link href="/deanery/schedule" className="panel workspace-card"><h2>Расписание</h2><p>Редактор занятий, разовых замен и отмен для своих групп</p></Link>
-    </div><section className="panel profile-panel"><h2>Следующие этапы</h2><p>Успеваемость, заявки и уведомления — в разработке. Эти разделы будут добавлены на следующем этапе.</p></section></>;
+      <Link href="/deanery/brs" className="panel workspace-card"><h2>БРС и допуски</h2><p>Планы дисциплин, учебные назначения, результаты и подтверждение допуска к экзаменам</p></Link>
+    </div><section className="panel profile-panel"><h2>Следующие этапы</h2><p>Заявки и уведомления будут добавлены на следующем этапе.</p></section></>;
 }
 export function DeaneryHome() { return <Suspense fallback={<CabinetPageLoading />}><HomeContent /></Suspense>; }
 

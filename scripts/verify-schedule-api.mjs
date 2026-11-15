@@ -10,6 +10,7 @@ import { getPublicScheduleData } from "../src/lib/schedule-repository.ts";
 import { parseScheduleQuery } from "../src/lib/schedule-calendar.ts";
 import { parseScheduleApiParameters } from "../src/lib/schedule-api-parameters.ts";
 import { cachedScheduleApiValue, invalidateScheduleApiCache } from "../src/lib/schedule-api-runtime.ts";
+import { provisionTestDatabase } from "./test-fixtures.mjs";
 
 mkdirSync(".local", { recursive: true });
 const folder = mkdtempSync(resolve(".local/schedule-api-test-"));
@@ -21,8 +22,9 @@ async function fingerprint(client) {
   return createHash("sha256").update(JSON.stringify(rows, (_, value) => typeof value === "bigint" ? String(value) : value)).digest("hex");
 }
 const original = await fingerprint(source), file = resolve(folder, "test.db");
-await source.execute({ sql: "VACUUM INTO ?", args: [file] });
-process.env.DATABASE_URL = "file:" + file.replaceAll("\\", "/");
+// Fixed expected lesson counts belong to an explicit fresh fixture, not to the
+// user's evolving timetable. The original is still fingerprinted for safety.
+process.env.DATABASE_URL = provisionTestDatabase(file).DATABASE_URL;
 const copy = createClient({ url: process.env.DATABASE_URL }), db = createPrismaClient();
 const base = "http://127.0.0.1:3220", results = [];
 const secret = randomBytes(48).toString("base64url"), proxySecret = randomBytes(48).toString("base64url");
@@ -55,7 +57,7 @@ async function request(path, options = {}) {
 const groupPath = "/api/v1/schedule?group=pi-24-1&week=2026-11-09";
 function lessons(response) { return response.json.data.days.flatMap(day => day.lessons); }
 try {
-  // Real publication fixtures only in the copied DB.
+  // Real publication fixtures only in the isolated DB.
   const privateTeacher = await db.user.create({ data: { email: "api-private@example.test", name: "API_PRIVATE_NAME", role: "TEACHER", teacherProfile: { create: { scheduleSlug: "api-private", publicName: "API_PRIVATE_NAME", isSchedulePublic: false } } } });
   await db.studyGroup.create({ data: { slug: "api-private", code: "API_PRIVATE_GROUP", programme: "Private", course: 1, isPublic: false } });
   const department = await db.academicDepartment.create({ data: { faculty: "Тестовый факультет", name: "Тестовая кафедра" } });

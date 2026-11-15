@@ -33,6 +33,18 @@ model User {
   technicalStaffProfile TechnicalStaffProfile?
   deaneryStaffProfile   DeaneryStaffProfile?
   scheduleAudits ScheduleAudit[]
+  teachingAssignments TeachingAssignment[]
+  brsResults BrsResult[] @relation("BrsStudent")
+  brsAuthoredResults BrsResult[] @relation("BrsAuthor")
+  brsAttendance BrsAttendance[] @relation("AttendanceStudent")
+  brsAuthoredAttendance BrsAttendance[] @relation("AttendanceAuthor")
+  brsAttempts BrsExamAttempt[] @relation("ExamStudent")
+  brsAuthoredAttempts BrsExamAttempt[] @relation("ExamAuthor")
+  brsAdmissions BrsAdmission[] @relation("AdmissionStudent")
+  brsAdmissionDecisions BrsAdmission[] @relation("AdmissionAuthor")
+  brsFinals BrsFinal[] @relation("FinalStudent")
+  brsApprovedFinals BrsFinal[] @relation("FinalAuthor")
+  brsAudits BrsAudit[]
 }
 
 // Credentials belong to Better Auth's credential Account, never to a profile.
@@ -224,6 +236,8 @@ model StudyGroup {
   parent StudyGroup? @relation("Subgroups", fields: [parentId], references: [id], onDelete: SetNull)
   subgroups StudyGroup[] @relation("Subgroups")
   scheduleAudits ScheduleAuditGroup[]
+  teachingAssignments TeachingAssignment[]
+  brsPlans BrsPlan[]
 
   @@index([departmentId])
   @@index([parentId])
@@ -245,6 +259,8 @@ model Discipline {
   code      String   @unique
   title     String
   lessons   Lesson[]
+  teachingAssignments TeachingAssignment[]
+  brsPlans BrsPlan[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -282,6 +298,231 @@ model AcademicTerm {
   isPublished          Boolean         @default(false)
   entries              ScheduleEntry[]
   exceptions ScheduleException[]
+  teachingAssignments TeachingAssignment[]
+  brsPlans BrsPlan[]
+}
+
+// Explicit academic authority, independent of timetable substitutions.
+model TeachingAssignment {
+  id String @id @default(cuid())
+  teacherId String
+  teacher User @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  groupId String
+  group StudyGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  disciplineId String
+  discipline Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  termId String
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  isActive Boolean @default(true)
+  confirmedAt DateTime @default(now())
+  version Int @default(1)
+  @@unique([teacherId, groupId, disciplineId, termId])
+  @@index([groupId, termId])
+}
+
+enum BrsControl {
+  CREDIT
+  DIFFERENTIATED
+  EXAM
+  DISTRIBUTED
+}
+
+enum BrsEventKind {
+  HOMEWORK
+  LAB
+  INTERIM
+  FINAL
+  SEMINAR
+}
+
+model BrsPlan {
+  id String @id @default(cuid())
+  groupId String
+  group StudyGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  disciplineId String
+  discipline Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  termId String
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  control BrsControl
+  templateVersion String
+  revision Int @default(1)
+  publishedAt DateTime?
+  examOn DateTime?
+  createdAt DateTime @default(now())
+  modules BrsModule[]
+  occurrences BrsOccurrence[]
+  admissions BrsAdmission[]
+  attempts BrsExamAttempt[]
+  finals BrsFinal[]
+  @@unique([groupId, disciplineId, termId])
+}
+
+model BrsModule {
+  id String @id @default(cuid())
+  planId String
+  plan BrsPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  number Int
+  startWeek Int
+  endWeek Int
+  seminarMax Int
+  workMax Int
+  controlMax Int
+  state String @default("PLANNED")
+  closedAt DateTime?
+  events BrsEvent[]
+  @@unique([planId, number])
+}
+
+// Stable identity is the source occurrence, so a move retains attendance/points.
+model BrsOccurrence {
+  id String @id @default(cuid())
+  planId String
+  plan BrsPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  sourceKey String
+  date DateTime
+  startMinute Int
+  endMinute Int
+  kind String
+  attendance BrsAttendance[]
+  events BrsEvent[]
+  @@unique([planId, sourceKey])
+}
+
+model BrsEvent {
+  id String @id @default(cuid())
+  moduleId String
+  module BrsModule @relation(fields: [moduleId], references: [id], onDelete: Restrict)
+  kind BrsEventKind
+  title String
+  number Int
+  week Int
+  plannedOn DateTime?
+  issuedOn DateTime?
+  deadline DateTime?
+  maxScore Int
+  required Boolean @default(true)
+  labMinScore Int?
+  labRequiresDefense Boolean @default(true)
+  occurrenceId String?
+  occurrence BrsOccurrence? @relation(fields: [occurrenceId], references: [id], onDelete: Restrict)
+  results BrsResult[]
+  @@index([moduleId])
+}
+
+model BrsResult {
+  id String @id @default(cuid())
+  eventId String
+  event BrsEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  studentId String
+  student User @relation("BrsStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation("BrsAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  score Int?
+  passed Boolean?
+  labStatus String?
+  submittedOn DateTime?
+  checkedOn DateTime?
+  performedOn DateTime?
+  defendedOn DateTime?
+  comment String @default("")
+  commentVisible Boolean @default(false)
+  deleted Boolean @default(false)
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([eventId, studentId])
+  @@index([studentId])
+}
+
+model BrsAttendance {
+  id String @id @default(cuid())
+  occurrenceId String
+  occurrence BrsOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Restrict)
+  studentId String
+  student User @relation("AttendanceStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation("AttendanceAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  mark String?
+  version Int @default(1)
+  @@unique([occurrenceId, studentId])
+}
+
+model BrsAdmission {
+  id String @id @default(cuid())
+  planId String
+  plan BrsPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  studentId String
+  student User @relation("AdmissionStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation("AdmissionAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  approved Boolean
+  reason String
+  decidedAt DateTime @default(now())
+  basedRevision Int
+  version Int @default(1)
+  @@unique([planId, studentId])
+}
+
+model BrsExamAttempt {
+  id String @id @default(cuid())
+  planId String
+  plan BrsPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  studentId String
+  student User @relation("ExamStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation("ExamAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  number Int
+  score Int
+  passed Boolean
+  heldOn DateTime
+  admissionVersion Int?
+  comment String @default("")
+  commentVisible Boolean @default(false)
+  deleted Boolean @default(false)
+  version Int @default(1)
+  @@unique([planId, studentId, number])
+}
+
+// Immutable computed snapshot; later corrections mark it for explicit review.
+model BrsFinal {
+  id String @id @default(cuid())
+  planId String
+  plan BrsPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  studentId String
+  student User @relation("FinalStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation("FinalAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  score Int
+  rating Int
+  grade String
+  basisJson String
+  basedRevision Int
+  approvedAt DateTime @default(now())
+  needsReview Boolean @default(false)
+  version Int @default(1)
+  @@unique([planId, studentId])
+}
+
+model BrsAudit {
+  id String @id @default(cuid())
+  actorId String
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  planId String?
+  objectId String
+  action String
+  requestId String
+  commandHash String
+  beforeJson String?
+  afterJson String?
+  reason String
+  createdAt DateTime @default(now())
+  @@unique([actorId, requestId])
+  @@index([planId, createdAt])
+}
+
+model BrsWriteState {
+  id String @id
+  revision Int @default(0)
 }
 
 model Lesson {

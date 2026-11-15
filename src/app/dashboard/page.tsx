@@ -24,15 +24,17 @@ const stats: {
   positive?: boolean;
 }[] = [
   { href: "schedule", icon: "calendar", label: "Сегодня в расписании", value: "3", unit: "занятия", note: "Первая пара в 09:00" },
-  { href: "grades", icon: "chart", label: "Средний балл", value: "4,8", unit: "Отличный результат", note: "По итогам прошлого семестра", positive: true },
-  { href: "session", icon: "book", label: "До зимней сессии", value: "61", unit: "день", note: "Начало — 11 января 2027" },
+  { href: "grades", icon: "chart", label: "Утверждённые результаты", value: "—", unit: "", note: "Официально зафиксированные результаты БРС" },
+  { href: "session", icon: "book", label: "Ближайший экзамен", value: "—", unit: "", note: "Дата не назначена" },
 ];
 
 export default async function Dashboard() {
   const user = await requireRole("STUDENT");
   const profile = await prisma.studentProfile.findUnique({ where: { userId: user.id }, include: { group: { select: { code: true } } } });
   const overview = await getStudentScheduleOverview();
-  const liveStats = stats.map(stat => stat.href === "schedule" ? { ...stat, value: String(overview.todayCount), unit: lessonCountLabel(overview.todayCount).split(" ")[1], note: !overview.linked ? "Группа пока не привязана" : overview.todayFirst ? `Первая пара в ${overview.todayFirst}` : "Сегодня занятий нет" } : stat);
+  const approvedCount = await prisma.brsFinal.count({ where: { studentId: user.id, needsReview: false } });
+  const nextExam = profile?.groupId ? await prisma.brsPlan.findFirst({ where: { groupId: profile.groupId, publishedAt: { not: null }, examOn: { gte: new Date() } }, select: { examOn: true, discipline: { select: { title: true } } }, orderBy: { examOn: "asc" } }) : null;
+  const liveStats = stats.map(stat => stat.href === "schedule" ? { ...stat, value: String(overview.todayCount), unit: lessonCountLabel(overview.todayCount).split(" ")[1], note: !overview.linked ? "Группа пока не привязана" : overview.todayFirst ? `Первая пара в ${overview.todayFirst}` : "Сегодня занятий нет" } : stat.href === "grades" ? { ...stat, value: String(approvedCount) } : { ...stat, value: nextExam?.examOn ? new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", timeZone: "UTC" }).format(nextExam.examOn) : "—", note: nextExam?.discipline.title ?? "Дата не назначена" });
   return (
     <>
       <div className="dashboard-title">
