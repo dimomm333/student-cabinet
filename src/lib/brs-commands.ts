@@ -25,7 +25,6 @@ function date(value: unknown): Date | null { if (value === null || value === und
 function integer(value: unknown, min: number, max: number) { if (!Number.isInteger(value) || Number(value) < min || Number(value) > max) fail("Значение вне допустимого диапазона."); return value as number; }
 function version(expected: number | undefined, actual: number) { if (expected !== actual) fail("Данные изменились. Обновите страницу и повторите действие.", 409); }
 function requireReason(command: BrsCommand) { const reason = text(command.reason ?? ""); if (reason.length < 5) fail("Укажите причину изменения (не менее 5 символов)."); return reason; }
-function requireConfirmation(command: BrsCommand) { if (command.confirmed !== true) fail("Подтвердите действие. Изменение будет сохранено в аудите."); }
 function role(actor: BrsActor, expected: string) { if (actor.role !== expected) fail("Операция недоступна вашей роли.", 403); }
 function validScore(value: unknown, max: number): number | null { return value === null ? null : integer(value, 0, max); }
 async function audit(db: BrsDB, actor: BrsActor, command: BrsCommand, objectId: string, before: unknown, after: unknown, hash: string, planId?: string, action = command.operation) {
@@ -235,31 +234,32 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
             const existingAttempt = command.attemptId ? await tx.brsExamAttempt.findFirst({ where: { id: command.attemptId, planId: plan.id, studentId } }) : null;
             const existingAttendance = command.occurrenceId ? await tx.brsAttendance.findUnique({ where: { occurrenceId_studentId: { occurrenceId: command.occurrenceId, studentId } } }) : null;
             const historicalCorrection = actor.role === "TEACHER" && (
-              ["RESULT", "DELETE_RESULT"].includes(command.operation) ? existingResult?.authorId === actor.id
-                : ["ATTEMPT", "DELETE_ATTEMPT"].includes(command.operation) ? existingAttempt?.authorId === actor.id
+              ["RESULT", "DELETE_RESULT", "RESTORE_RESULT"].includes(command.operation) ? existingResult?.authorId === actor.id
+                : ["ATTEMPT", "DELETE_ATTEMPT", "RESTORE_ATTEMPT"].includes(command.operation) ? existingAttempt?.authorId === actor.id
                   : command.operation === "ATTENDANCE" ? existingAttendance?.authorId === actor.id : false);
             await studentInPlan(tx, actor, plan, studentId, historicalCorrection);
             const official = await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: plan.id, studentId } } });
-            if (official && ["RESULT", "DELETE_RESULT", "ATTEMPT", "DELETE_ATTEMPT"].includes(command.operation)) requireConfirmation(command);
-            if (command.operation === "RESULT" || command.operation === "DELETE_RESULT") {
+            if (["RESULT", "DELETE_RESULT", "RESTORE_RESULT"].includes(command.operation)) {
               role(actor, "TEACHER");
               if (!event || !brsModule) fail("Мероприятие недоступно.");
               if (event.kind === "SEMINAR") fail("Семинарские баллы определяются посещаемостью. Измените отметку занятия.");
               if (existingResult && existingResult.authorId !== actor.id) fail("Изменять чужую запись запрещено.", 403);
               version(command.version, existingResult?.version ?? 0);
-              if (brsModule.state === "CLOSED") requireConfirmation(command);
               if (event.occurrenceId) {
                 const occurrence = plan.occurrences.find(item => item.id === event.occurrenceId)!;
                 const live = (await brsSchedule(tx, plan)).find(pair => pair.sourceKey === occurrence.sourceKey);
-                if ((!live || live.cancelled || live.kind !== occurrence.kind || live.week < brsModule.startWeek || live.week > brsModule.endWeek) && command.operation === "RESULT") fail("Занятие отменено или изменено. Деканату необходимо разрешить конфликт привязки.");
+                if ((!live || live.cancelled || live.kind !== occurrence.kind || live.week < brsModule.startWeek || live.week > brsModule.endWeek) && command.operation !== "DELETE_RESULT") fail("Занятие отменено или изменено. Деканату необходимо разрешить конфликт привязки.");
               }
-              if (command.operation === "RESULT" && plan.control === "DISTRIBUTED" && event.kind === "FINAL" && brsModule.number === plan.modules.length) {
+              if (["RESULT", "RESTORE_RESULT"].includes(command.operation) && plan.control === "DISTRIBUTED" && event.kind === "FINAL" && brsModule.number === plan.modules.length) {
                 if ((await calculateStudent(tx, plan, studentId)).calculation.academic.state !== "MET") fail("К последнему РК не допущен: закройте обязательные работы предыдущих модулей. Сессионная попытка доступна отдельно.");
               }
               before = existingResult;
               if (command.operation === "DELETE_RESULT") {
-                if (!existingResult || !command.confirmed) fail("Подтвердите удаление существующей записи.");
+                if (!existingResult || existingResult.deleted) fail("Активная запись для удаления не найдена.");
                 after = await tx.brsResult.update({ where: { id: existingResult.id }, data: { deleted: true, version: { increment: 1 } } });
+              } else if (command.operation === "RESTORE_RESULT") {
+                if (!existingResult || !existingResult.deleted) fail("Удалённая запись для восстановления не найдена.");
+                after = await tx.brsResult.update({ where: { id: existingResult.id }, data: { deleted: false, version: { increment: 1 } } });
               } else {
                 const timed = ["HOMEWORK", "INTERIM", "FINAL"].includes(event.kind);
                 const submissionTiming = timed ? command.submissionTiming ?? "NOT_SUBMITTED" : null;
@@ -269,7 +269,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
                 let primaryScore: number | null = null, primaryMax: number | null = null, score: number | null = null;
                 let exact = null, scoreSource = event.scoringMode;
                 if (timed && submissionTiming === "NOT_SUBMITTED") {
-                  if (existingResult?.score != null && !existingResult.deleted && !command.confirmed) fail("Подтвердите аннулирование ранее выставленного результата.");
+                  // The result is intentionally unset and the prior value remains in the audit.
                 } else if (timed && submissionTiming === "LATE") {
                   exact = fraction(event.maxScore, 2); scoreSource = "LATE";
                 } else if (mode === "PRIMARY") {
@@ -296,9 +296,7 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               if (!occurrence) fail("Занятие недоступно.");
               const live = (await brsSchedule(tx, plan)).find(pair => pair.sourceKey === occurrence.sourceKey);
               if (!live || live.cancelled) fail("За отменённое занятие посещаемость не требуется. Существующие отметки сохранены.");
-              if (plan.modules.some(item => item.state === "CLOSED" && live.week >= item.startWeek && live.week <= item.endWeek)) requireConfirmation(command);
               const changesSeminar = plan.modules.some(item => item.events.some(event => event.kind === "SEMINAR" && event.occurrenceId === occurrence.id)) && existingAttendance?.mark !== (command.mark ?? null);
-              if (official && changesSeminar) requireConfirmation(command);
               if (existingAttendance && existingAttendance.authorId !== actor.id) fail("Изменять чужую отметку запрещено.", 403);
               version(command.version, existingAttendance?.version ?? 0);
               if (command.mark != null && !Object.hasOwn(attendanceLabels, command.mark)) fail("Некорректная отметка.");
@@ -315,18 +313,21 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               before = current.admission;
               const values = { approved: command.operation === "CONFIRM", authorId: actor.id, decidedAt: new Date(), basedRevision: plan.revision + 1, reason: command.reason! };
               after = current.admission ? await tx.brsAdmission.update({ where: { id: current.admission.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsAdmission.create({ data: { ...values, planId: plan.id, studentId } });
-            } else if (command.operation === "ATTEMPT" || command.operation === "DELETE_ATTEMPT") {
+            } else if (["ATTEMPT", "DELETE_ATTEMPT", "RESTORE_ATTEMPT"].includes(command.operation)) {
               role(actor, "TEACHER");
               if (!["EXAM", "DISTRIBUTED"].includes(plan.control)) fail("Отдельный экзамен не предусмотрен.");
               if (command.attemptId && !existingAttempt) fail("Попытка недоступна.", 403);
               if (existingAttempt && existingAttempt.authorId !== actor.id) fail("Изменять чужую попытку запрещено.", 403);
               version(command.version, existingAttempt?.version ?? 0);
-              if (existingAttempt) requireConfirmation(command);
               const current = await calculateStudent(tx, plan, studentId);
               before = existingAttempt;
               if (command.operation === "DELETE_ATTEMPT") {
-                if (!existingAttempt || !command.confirmed) fail("Подтвердите удаление попытки.");
+                if (!existingAttempt || existingAttempt.deleted) fail("Активная попытка для удаления не найдена.");
                 after = await tx.brsExamAttempt.update({ where: { id: existingAttempt.id }, data: { deleted: true, version: { increment: 1 } } });
+              } else if (command.operation === "RESTORE_ATTEMPT") {
+                if (!existingAttempt || !existingAttempt.deleted) fail("Удалённая попытка для восстановления не найдена.");
+                if (plan.control === "EXAM" && current.calculation.admissionStatus !== "Допущен") fail(`Экзамен недоступен: ${current.calculation.admissionStatus}.`);
+                after = await tx.brsExamAttempt.update({ where: { id: existingAttempt.id }, data: { deleted: false, version: { increment: 1 } } });
               } else {
                 if ((!existingAttempt || existingAttempt.deleted) && plan.control === "EXAM" && current.calculation.admissionStatus !== "Допущен") fail(`Экзамен недоступен: ${current.calculation.admissionStatus}.`);
                 const score = integer(command.score, 0, current.calculation.examMax);
@@ -336,7 +337,6 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               }
             } else if (command.operation === "FINALIZE") {
               role(actor, "TEACHER");
-              requireConfirmation(command);
               version(command.version, official?.version ?? 0);
               const current = await calculateStudent(tx, plan, studentId);
               if (!current.calculation.ready) fail("Для фиксации завершите обязательные работы, выставление баллов, модули и предусмотренный экзамен.");
@@ -345,8 +345,8 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
               before = official;
               after = official ? await tx.brsFinal.update({ where: { id: official.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsFinal.create({ data: { ...values, planId: plan.id, studentId } });
             } else fail("Неизвестная операция.");
-            if (["RESULT", "DELETE_RESULT", "ATTEMPT", "DELETE_ATTEMPT"].includes(command.operation) && official) await tx.brsFinal.update({ where: { id: official.id }, data: { needsReview: true, version: { increment: 1 } } });
-            if (["RESULT", "DELETE_RESULT"].includes(command.operation) && plan.control === "EXAM") {
+            if (["RESULT", "DELETE_RESULT", "RESTORE_RESULT", "ATTEMPT", "DELETE_ATTEMPT", "RESTORE_ATTEMPT"].includes(command.operation) && official) await tx.brsFinal.update({ where: { id: official.id }, data: { needsReview: true, version: { increment: 1 } } });
+            if (["RESULT", "DELETE_RESULT", "RESTORE_RESULT"].includes(command.operation) && plan.control === "EXAM") {
               await reconcileAdmission(tx, actor, command, plan, studentId, hash);
             }
           }

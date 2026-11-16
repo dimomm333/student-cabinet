@@ -14,7 +14,7 @@ export async function verifyStudentUI({browser,context,otherContext,pageFor,base
   const dto=await (await context.request.get(base+'/api/brs?planId='+planId)).json();
   const course=dto.overview.find(c=>c.id===planId),results=[];
   assert(course.calculation.modules.every(m=>m.complete));
-  for(const width of [356,360,1366,1440]) {
+  for(const width of [320,360,390,1366]) {
     const ctx=await browser.newContext({storageState:{...(await context.storageState()),origins:[]},viewport:{width,height:900},reducedMotion:'reduce',...(width<700?{isMobile:true,hasTouch:true}:{})});
     try {
       const page=await pageFor(ctx,'/dashboard/grades?planId='+planId),mobile=width<700;
@@ -38,16 +38,22 @@ export async function verifyStudentUI({browser,context,otherContext,pageFor,base
         await list.locator('tbody tr[data-work] td').last().tap();await expect(page.getByRole('dialog')).toBeVisible();await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).not.toBeVisible();
         await page.screenshot({path:resolve(root,'student-list-'+width+'.png'),fullPage:true});
         await page.getByRole('button',{name:'Режим таблицы',exact:true}).click();await expect(page.locator('.brs-full')).toBeVisible();
+        const container=page.locator('.brs-full'),sticky=full.locator('tbody .brs-sticky').first(),box=await sticky.boundingBox(),visible=await container.boundingBox();
+        assert(box.width<=105&&box.width/visible.width<=0.315,'Mobile discipline column too wide: '+JSON.stringify({width,box,visible}));
+        await container.evaluate(el=>el.scrollLeft=180);const shifted=await sticky.boundingBox();assert(Math.abs(box.x-shifted.x)<=2,'Mobile discipline column is not sticky: '+JSON.stringify({width,box,shifted}));
+        assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile table overflow');
+        await page.screenshot({path:resolve(root,'student-table-narrow-'+width+'.png')});
+
       } else {
         const heights=await full.locator('tbody > tr').evaluateAll(rows=>rows.map(row=>row.getBoundingClientRect().height));maxHeight=Math.max(...heights);assert(maxHeight<=150,'Tall desktop course row '+maxHeight);
         const scroller=page.locator('.brs-full'),sticky=full.locator('tbody .brs-sticky').first();const initial=await sticky.boundingBox();assert(initial.width<=175);
-        await scroller.evaluate(el=>el.scrollLeft=160);assert.equal(await scroller.evaluate(el=>el.scrollLeft),160);const moved=await sticky.boundingBox();assert(Math.abs(initial.x-moved.x)<1,'Discipline column moved');await scroller.evaluate(el=>el.scrollLeft=0);
+        await scroller.evaluate(el=>el.scrollLeft=160);assert.equal(await scroller.evaluate(el=>el.scrollLeft),160);const moved=await sticky.boundingBox();assert(Math.abs(initial.x-moved.x)<=2,'Discipline column moved');await scroller.evaluate(el=>el.scrollLeft=0);
         const card=full.locator('.brs-progress-cell').first(),before=await card.boundingBox();await card.hover();
-        await expect(page.locator('.brs-student-full .brs-column-active')).not.toHaveCount(0);
+        await expect(page.locator('.brs-student-full .brs-cross-col')).not.toHaveCount(0);await expect(page.locator('.brs-student-full .brs-cross-row')).toHaveCount(1);await expect(page.locator('.brs-student-full .brs-cross-cell')).toHaveCount(1);
         assert.notEqual(await card.evaluate(el=>getComputedStyle(el).boxShadow),'none','Work has no hover accent');const after=await card.boundingBox();assert(Math.abs(after.width-before.width)<1&&Math.abs(after.height-before.height)<1,'Hover changed geometry');
         await page.screenshot({path:resolve(root,'student-table-hover-'+width+'.png'),fullPage:true});
-        await card.click();await expect(page.getByRole('dialog')).toBeVisible();await page.getByRole('dialog').getByRole('button',{name:'Закрыть',exact:true}).click();await page.mouse.move(1,1);
-        await expect(page.locator('.brs-student-full .brs-column-active')).toHaveCount(0);
+        await card.click();await expect(page.getByRole('dialog')).toBeVisible();await page.getByRole('dialog').getByRole('button',{name:'Закрыть',exact:true}).click();await expect(page.locator('.brs-student-full .brs-cross-col')).toHaveCount(0);await page.mouse.move(1,1);
+        await expect(page.locator('.brs-student-full .brs-cross-col')).toHaveCount(0);
         assert.equal(await page.locator('.brs-student-progress .brs-selected').count(),0);
         assert.notEqual(await card.locator('xpath=ancestor::td').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(255, 241, 210)','Clicked cell kept yellow');
         await card.focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');await expect(card).toBeFocused();assert.equal(await card.evaluate(el=>getComputedStyle(el).outlineStyle),'solid');

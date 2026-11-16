@@ -15,7 +15,6 @@ export function semesterAppearance(course: Course): AcademicAppearance {
 }
 export function shortSubmission(event: Course["modules"][number]["events"][number], condition?: Course["calculation"]["workStates"][string]) {
   if (condition?.coveredByAttempt) return "Учтена сессионная замена";
-  if (condition?.category === "DEBT") return condition.required ? "Есть задолженность" : "Работа не выполнена успешно";
   if (condition?.category === "UPCOMING") return "Предстоит";
   if (condition?.category === "WAITING") return "Ожидается оценивание / подтверждение";
   const labels: Record<string, string> = { "Сдано досрочно": "досрочно", "Сдано вовремя": "вовремя", "Сдано с опозданием": "с опозданием", "Не сдано": "не сдано" };

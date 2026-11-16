@@ -14,7 +14,7 @@ export async function verifyRefinementRules({db,teacher,dean,alex,maria,pass}){
   const group=await db.studyGroup.findUniqueOrThrow({where:{slug:'pi-24-1'}}),discipline=await db.discipline.findUniqueOrThrow({where:{code:'programming'}}),room=await db.room.findFirstOrThrow();
   const term=await db.academicTerm.create({data:{code:'brs-refinement-fixture',name:'Изолированная проверка первичных баллов',startsOn:new Date('2027-01-04'),endsOn:new Date('2027-04-25'),firstNumeratorMonday:new Date('2027-01-04'),isPublished:true}});
   const full=id=>db.brsPlan.findUniqueOrThrow({where:{id},include:planInclude});
-  const save=async(id,values,who=teacher)=>executeBrsCommand(db,who,{requestId:randomUUID(),planId:id,revision:id?(await full(id)).revision:undefined,...(who.role==='TEACHER'?{confirmed:true}:{}),...values});
+  const save=async(id,values,who=teacher)=>executeBrsCommand(db,who,{requestId:randomUUID(),planId:id,revision:id?(await full(id)).revision:undefined,...values});
   await executeScheduleCommand(db,dean,{operation:'CREATE',groupIds:[group.id],teacherIds:[teacher.id],disciplineId:discipline.id,roomId:room.id,termId:term.id,dayOfWeek:1,start:'20:00',end:'21:00',kind:'PRACTICE',weekPattern:'EVERY',isPublished:true});
   await executeScheduleCommand(db,dean,{operation:'CREATE',groupIds:[group.id],teacherIds:[teacher.id],disciplineId:discipline.id,roomId:room.id,termId:term.id,dayOfWeek:2,start:'20:00',end:'21:00',kind:'LAB',weekPattern:'EVERY',isPublished:true});
   await save(undefined,{operation:'ASSIGN',groupId:group.id,disciplineId:discipline.id,termId:term.id,teacherId:teacher.id},dean);
@@ -76,8 +76,7 @@ export async function verifyRefinementRules({db,teacher,dean,alex,maria,pass}){
   await result(interim.id,{score:375,submissionTiming:'ON_TIME',passed:false});assert.equal((await calc()).calculation.academic.state,'MET');
   assert.equal((await calc()).results.find(r=>r.eventId===interim.id).passed,true,'Client cannot contradict numeric success');
   await result(interim.id,{score:0,submissionTiming:'EARLY'});assert.equal((await calc()).results.find(r=>r.eventId===interim.id).score,0);
-  await assert.rejects(()=>result(interim.id,{submissionTiming:'NOT_SUBMITTED',confirmed:false}),/аннулирование|Подтвердите/);
-  await result(interim.id,{submissionTiming:'NOT_SUBMITTED',confirmed:true});
+  await result(interim.id,{submissionTiming:'NOT_SUBMITTED'});
   current=await calc();const noScore=current.results.find(r=>r.eventId===interim.id);assert.equal(noScore.score,null);assert.equal(noScore.passed,null);assert.equal(current.calculation.academic.state,'PENDING');
   await result(interim.id,{submissionTiming:'LATE',score:0,primaryScore:999999});
   let late=(await calc()).results.find(r=>r.eventId===interim.id);assert.equal(late.score,375);assert.equal(late.scoreSource,'LATE');assert.equal(late.primaryScore,null);assert.equal(late.primaryMax,null);assert.equal(late.passed,true);

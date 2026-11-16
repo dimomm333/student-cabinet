@@ -862,7 +862,7 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-table th, .brs-table td { border-right: 1px solid #e0e7e2; border-bottom: 1px solid #e0e7e2; padding: 12px; text-align: left; }
 .brs-table thead th { background: #edf2ef; color: #274a3e; font-weight: 650; }
 .brs-table small { display: block; font-size: 11px; color: #667c71; }
-.brs-table tbody tr:hover td { background: #f1f6f3; }
+.brs-table:not(.brs-cross-table) tbody tr:hover td { background: #f1f6f3; }
 .brs-table td:focus-within, .brs-table th:focus-within { background: #fff1d2; }
 .brs-table .brs-sticky { position: sticky; left: 0; z-index: 2; background: #f6f8f5; min-width: 170px; max-width: 230px; white-space: normal; box-shadow: 2px 0 4px #213b2310; }
 .brs-table .brs-cell { padding: 8px; width: 100%; min-width: 54px; white-space: nowrap; }
@@ -876,6 +876,8 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-session { display: grid; gap: 18px; min-width: 0; }
 .brs-admission { padding: 16px; border-left: 4px solid #8bab89; background: #f0f5ee; margin: 15px 0; }
 .brs-session-card > button { margin-top: 16px; }
+.brs-finalize { margin-top: 16px; display: grid; justify-items: start; gap: 8px; }
+.brs-finalize details { max-width: 100%; }
 .brs-error, .brs-message { padding: 12px 16px; border-radius: 8px; margin: 0; }
 .brs-error { color: #913724; background: #fff0e9; }
 .brs-message { color: #245a40; background: #e8f3e9; }
@@ -949,11 +951,10 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-student-progress .brs-academic-failed { background: #fff0ee; border: 1px solid #dbada5; color: #813f35; }
 .brs-student-progress .brs-academic-pending { background: #f4f5f4; border: 1px solid #cbd2cd; color: #53645b; }
 .brs-semester-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; width: fit-content; max-width: 100%; font-size: 11px; line-height: 1.4; padding: 4px 6px; border-radius: 4px; margin: 5px 0; }
-.brs-student-progress .brs-table tbody tr:hover td, .brs-student-progress .brs-table td:focus-within, .brs-student-progress .brs-table th:focus-within { background: transparent; }
+.brs-student-progress .brs-table:not(.brs-cross-table) tbody tr:hover td, .brs-student-progress .brs-table td:focus-within, .brs-student-progress .brs-table th:focus-within { background: transparent; }
 .brs-student-progress table.brs-student-full tbody tr .brs-column-active, .brs-student-progress .brs-student-full thead .brs-column-active { background: #f0f4f2; box-shadow: none; }
 .brs-student-progress .brs-progress-cell:focus-visible, .brs-student-progress .brs-list-open:focus-visible { outline: 2px solid #426f5b; outline-offset: 2px; }
 .brs-student-progress .brs-progress-cell:focus:not(:focus-visible), .brs-student-progress .brs-list-open:focus:not(:focus-visible) { outline: none; }
-@media (hover:hover) { .brs-student-progress .brs-progress-cell:hover { border-color: #527d69; background: #edf5f0; box-shadow: inset 0 0 0 1px #527d69; } }
 .brs-student-progress .brs-compact > details .brs-course-list { table-layout: fixed; white-space: normal; margin-top: 12px; font-size: 12px; }
 .brs-student-progress .brs-compact > details .brs-course-list th, .brs-student-progress .brs-compact > details .brs-course-list td { padding: 7px 5px; vertical-align: middle; overflow-wrap: anywhere; }
 .brs-student-progress .brs-compact > details .brs-course-list thead th:nth-child(1) { width: 56px; }
@@ -961,7 +962,7 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-student-progress .brs-compact > details .brs-course-list thead th:nth-child(3) { width: auto; }
 .brs-student-progress .brs-list-open { padding: 5px 0; border: 0; border-radius: 3px; background: transparent; text-align: left; font-size: 12px; font-weight: 650; min-height: 30px; }
 .brs-course-list tr[data-work] { cursor: pointer; height: 44px; }
-.brs-student-progress .brs-course-list tr[data-work]:hover, .brs-course-list tr[data-work]:has(:focus-visible) { background: #f0f5f2; }
+.brs-course-list tr[data-work]:has(:focus-visible) { background: #f0f5f2; }
 .brs-course-list .brs-module-summary { width: fit-content; max-width: 100%; }
 .brs-student-progress .brs-seminar-summary th { font-size: 11px; line-height: 1.3; }
 .brs-course-outcome { display: grid; gap: 4px; font-size: 11px; margin-top: 8px; }
@@ -997,3 +998,32 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-table td:has(> .brs-text-comment) { white-space: normal; max-width: 280px; }
 .brs-text-comment { display: block; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 100px; max-width: 280px; max-height: 180px; overflow-y: auto; }
 .brs-confirmation { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
+/* Shared journal surfaces and transient cross-highlighting. */
+.brs-workspace { --brs-border: #718e7b; --brs-grid: #a6bbad; --brs-head: #dcebe0; --brs-ink: #173d2e; --brs-row: #e7f1eb; --brs-col: #dbece3; --brs-cell-active: #cce5d6; }
+.brs-workspace :is(.brs-student-section-heading, .brs-student-group > h2, .brs-panel > h2, .brs-session > h2, .brs-flex > h2) { color: var(--brs-ink); font-size: 20px; font-weight: 700; border-left: 4px solid #477a5d; padding: 3px 0 3px 10px; line-height: 1.3; }
+.brs-student-progress details > summary { background: #e6f0e9; border: 1px solid #8aa895; border-left: 4px solid #477a5d; border-radius: 7px; padding: 7px 10px; color: #173d2e; }
+.brs-student-progress details[open] > summary { background: #d9eade; border-color: #648c72; }
+.brs-student-progress details > summary::marker { color: #285c3f; }
+.brs-student-progress .brs-course-heading, .brs-student-progress .brs-course-heading small { color: #244b37; }
+.brs-workspace .brs-table { border: 1px solid var(--brs-border); border-radius: 7px; }
+.brs-workspace .brs-table :is(th, td) { border-right: 1px solid var(--brs-grid); border-bottom: 1px solid var(--brs-grid); }
+.brs-workspace .brs-table thead th { background: var(--brs-head); color: var(--brs-ink); }
+.brs-workspace .brs-table small { color: #496354; }
+.brs-cross-table tbody tr:nth-child(even) > :not(.brs-sticky) { background: #f5f9f6; }
+.brs-workspace .brs-cross-table.brs-cross-table tbody tr.brs-cross-row > * { background: var(--brs-row); }
+.brs-workspace .brs-cross-table.brs-cross-table :is(thead, tbody) .brs-cross-col { background: var(--brs-col); }
+.brs-workspace .brs-cross-table.brs-cross-table tbody tr.brs-cross-row > .brs-cross-cell { background: var(--brs-cell-active); box-shadow: inset 0 0 0 2px #356e50; }
+.brs-workspace .brs-cross-table .brs-cross-cell .brs-cell { border-color: #356e50; box-shadow: inset 0 0 0 1px #356e50; }
+.brs-workspace .brs-cross-table :is(td, th):focus-within { background: transparent; }
+.brs-workspace .brs-cross-table .brs-sticky:focus-within { background: #f6f8f5; }
+.brs-workspace .brs-table .brs-cell { border-color: #607f6b; }
+.brs-workspace .brs-cross-table button:focus-visible, .brs-workspace .brs-cross-table th:focus-visible { outline: 2px solid #24583b; outline-offset: -2px; }
+.brs-workspace[data-brs-input="pointer"] .brs-cross-table :is(button, th):focus-visible { outline: none; }
+.brs-student-full { --brs-subject-width: 175px; table-layout: fixed; width: calc(var(--brs-subject-width) + var(--brs-weeks-width) + 300px); }
+.brs-student-full .brs-subject-col { width: var(--brs-subject-width); }
+.brs-student-full .brs-week-col { width: 118px; }
+.brs-student-full .brs-total-col { width: 150px; }
+.brs-student-progress .brs-full .brs-sticky { min-width: 0; width: var(--brs-subject-width); max-width: var(--brs-subject-width); overflow-wrap: anywhere; }
+.brs-student-progress .brs-module-summary small { display: block; color: inherit; white-space: normal; font-size: 10px; font-weight: 700; }
+@media (max-width:700px) { .brs-student-full { --brs-subject-width: 96px; } .brs-student-progress .brs-full .brs-sticky { min-width: 0; width: var(--brs-subject-width); max-width: var(--brs-subject-width); } .brs-student-progress .brs-full .brs-course-heading { font-size: 12px; } }
+@media (max-width:340px) { .brs-student-full { --brs-subject-width: 88px; } }

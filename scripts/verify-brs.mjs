@@ -50,7 +50,7 @@ async function command(actor,planId,values){
     }
     if(['HOMEWORK','INTERIM','FINAL'].includes(event?.kind)&&values.submissionTiming===undefined)values={...values,submissionTiming:'ON_TIME'};
   }
-  return executeBrsCommand(db,actor,{requestId:randomUUID(),planId,revision:planId?(await full(planId)).revision:undefined,...(actor.role==='TEACHER'?{confirmed:true}:{}),...values});
+  return executeBrsCommand(db,actor,{requestId:randomUUID(),planId,revision:planId?(await full(planId)).revision:undefined,...values});
 }
 async function model(actor,planId){return serializeWorkspace(await getBrsWorkspace(db,actor,planId));}
 try {
@@ -165,7 +165,6 @@ try {
   const creditPlan=await full(credit.id),event=creditPlan.modules[0].events.find(e=>e.kind==='INTERIM');
   let record=await db.brsResult.findUniqueOrThrow({where:{eventId_studentId:{eventId:event.id,studentId:a.id}}});
   await reject(()=>command(teacher,credit.id,{operation:'RESULT',studentId:a.id,eventId:event.id,score:event.maxScore+1,version:record.version,reason:'Проверка максимума'}),/диапазона/);
-  await reject(()=>command(teacher,credit.id,{operation:'RESULT',studentId:a.id,eventId:event.id,score:0,version:record.version,confirmed:false}),/Подтвердите/);
   const concurrency={operation:'RESULT',studentId:a.id,eventId:event.id,version:record.version,score:50,reason:'Контролируемая коррекция закрытого модуля',revision:(await full(credit.id)).revision};
   const races=await Promise.allSettled([command(teacher,credit.id,concurrency),command(teacher,credit.id,{...concurrency,score:60})]);assert.equal(races.filter(r=>r.status==='fulfilled').length,1);
   assert.equal((await model(alex,credit.id)).selected.students[0].official.needsReview,true);
@@ -205,7 +204,7 @@ try {
   await db.user.update({where:{id:t.id},data:{role:'ADMIN'}});await reject(()=>command(teacher,exam.id,{operation:'ATTEMPT',studentId:a.id,score:2000,passed:true,heldOn:'2026-12-30',version:0}),/Доступ закрыт/);await db.user.update({where:{id:t.id},data:{role:'TEACHER'}});
   pass('Live role, session lifetime and revoked department assignment');
   const refinement=await verifyRefinementRules({db,teacher,dean,alex,maria,pass});
-  const finalFixture=await verifyFinalRules({db,teacher,dean,alex,pass});
+  const finalFixture=await verifyFinalRules({db,teacher,dean,alex,admin,staff,pass});
   await prepareStudentUIFixture(db,refinement.id);
   // Browser and HTTP checks use a dedicated production server and random password.
   const password=randomBytes(24).toString('base64url');await db.account.updateMany({where:{providerId:'credential'},data:{password:await hashPassword(password)}});
@@ -230,11 +229,11 @@ try {
   const payload=await mc.request.get(base+'/api/brs?planId='+credit.id);assert.equal(payload.headers()['cache-control'],'private, no-store');assert(!(await payload.text()).includes('приватный комментарий'));
   async function pageFor(ctx,path){const page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(/Next\.js encountered|Blocking Route|Instant validation|same key|unique.*key/i.test(m.text()))diagnostics.push(m.text());});await page.goto(base+path);await expect(page.locator('main h1')).toBeVisible();return page;}
   const tp=await pageFor(tc,'/teacher/grades?planId='+exam.id);await tp.getByRole('button',{name:new RegExp(a.name+', '+workTitle(homework)+',')}).click();
-  await tp.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await tp.getByLabel('Баллы БРС',{exact:true}).fill('8.4');await tp.getByLabel('Комментарий',{exact:true}).fill('Сквозной комментарий БРС');await tp.getByRole('checkbox',{name:'Показывать комментарий студенту и деканату'}).check();await tp.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(tp.getByRole('dialog')).not.toBeVisible();
+  await tp.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await tp.getByLabel('Баллы БРС',{exact:true}).fill('8.4');await tp.getByRole('dialog').getByLabel('Комментарий (необязательно)',{exact:true}).fill('Сквозной комментарий БРС');await tp.getByRole('checkbox',{name:'Показывать комментарий студенту и деканату'}).check();await tp.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(tp.getByRole('dialog')).not.toBeVisible();
   const ap=await pageFor(ac,'/dashboard/grades?planId='+exam.id);await ap.getByRole('button',{name:new RegExp(workTitle(homework)+',.*'+exam.discipline.title)}).first().click();await expect(ap.getByRole('dialog')).toContainText('Сквозной комментарий БРС');await ap.keyboard.press('Escape');await expect(ap.getByRole('dialog')).not.toBeVisible();
   const dp=await pageFor(dc,'/deanery/admissions?planId='+exam.id);await expect(dp.locator('[data-student="'+a.id+'"]')).toContainText('Допущен');
   const mp=await pageFor(mc,'/dashboard/session?planId='+exam.id);assert(!(await mp.locator('main').innerText()).includes('Сквозной комментарий БРС'));
-  await tp.getByRole('button',{name:new RegExp(a.name+', '+workTitle(homework)+',')}).click();await tp.getByRole('button',{name:'Удалить результат',exact:true}).click();await expect(tp.getByRole('dialog')).toContainText('Удалить результат?');await tp.getByRole('button',{name:'Подтвердить',exact:true}).click();await expect(tp.getByRole('dialog')).not.toBeVisible();
+  await tp.getByRole('button',{name:new RegExp(a.name+', '+workTitle(homework)+',')}).click();await tp.getByRole('button',{name:'Удалить результат',exact:true}).click();await expect(tp.getByRole('dialog')).not.toBeVisible();
   await dp.getByRole('button',{name:'Обновить',exact:true}).click();await expect(dp.locator('[data-student="'+a.id+'"]')).toContainText('Проверка не завершена');
   await tp.getByRole('button',{name:new RegExp(a.name+', '+workTitle(homework)+',')}).click();
   await tp.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await tp.getByLabel('Баллы БРС',{exact:true}).fill('8.4');
@@ -272,7 +271,7 @@ try {
   // Compact attendance menu saves each choice directly and supports keyboard/Escape.
   const attendance=refined.getByRole('button',{name:new RegExp('Посещаемость .*'+a.name)}).first();
   await attendance.click();bounds=await refined.getByRole('dialog').boundingBox();assert(bounds.width<=290&&bounds.height<650);
-  await refined.getByRole('checkbox',{name:'Подтверждаю исправление отметки',exact:true}).check();
+
   await refined.screenshot({path:resolve(root,'attendance-menu.png')});
   await refined.getByRole('button',{name:'✓✓ — присутствовал и работал',exact:true}).click();await expect(refined.getByRole('dialog')).not.toBeVisible();
   await attendance.click();await refined.keyboard.press('Escape');await expect(refined.getByRole('dialog')).not.toBeVisible();
@@ -280,7 +279,7 @@ try {
   const attendanceSection=refined.locator('section').filter({has:refined.getByRole('heading',{name:'Посещаемость',exact:true})});
   const mariaAttendance=attendanceSection.locator('tbody tr').filter({hasText:m.name}).getByRole('button').first();
   for(const [label,mark]of[['✓ — присутствовал','✓'],['✓✓ — присутствовал и работал','✓✓'],['Б — болезнь','Б'],['Н — отсутствовал','Н'],['У — уважительная причина','У'],['Очистить отметку','']]){
-    await mariaAttendance.click();const menu=refined.getByRole('dialog');assert.equal(await menu.locator('textarea').count(),0);
+    await mariaAttendance.click();const menu=refined.getByRole('dialog');assert.equal(await menu.locator('textarea[required]').count(),0);
     bounds=await menu.boundingBox();assert(bounds.width<=290&&bounds.height<380&&bounds.y>=0&&bounds.y+bounds.height<=900);
     if(!mark)await refined.screenshot({path:resolve(root,'attendance-menu-compact.png')});
     await menu.getByRole('button',{name:label,exact:true}).click();await expect(menu).not.toBeVisible();await expect(mariaAttendance).toHaveText(mark);
@@ -289,7 +288,7 @@ try {
   await mariaAttendance.click();await refined.getByRole('dialog').getByRole('button',{name:'✓ — присутствовал',exact:true}).focus();await refined.keyboard.press('End');await expect(refined.getByRole('dialog').getByRole('button',{name:'Очистить отметку',exact:true})).toBeFocused();await refined.keyboard.press('Escape');
   await brsNavigate(refined,'Сессия','Сессия');await expect(refined.locator('main h1:visible')).toHaveText('Сессия');
   await brsNavigate(refined,'Успеваемость','Электронный журнал');
-  await refined.getByRole('button',{name:new RegExp(a.name+', РК1,')}).click();await refined.getByLabel('Состояние сдачи',{exact:true}).selectOption('LATE');assert.equal(await refined.getByLabel('Первичные баллы',{exact:true}).count(),0);await expect(refined.getByRole('dialog')).toContainText('3,75');await refined.getByRole('checkbox',{name:'Подтверждаю действие и сохранение истории изменений'}).check();await refined.getByLabel('Комментарий',{exact:true}).fill('');await refined.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(refined.getByRole('dialog')).not.toBeVisible();
+  await refined.getByRole('button',{name:new RegExp(a.name+', РК1,')}).click();await refined.getByLabel('Состояние сдачи',{exact:true}).selectOption('LATE');assert.equal(await refined.getByLabel('Первичные баллы',{exact:true}).count(),0);await expect(refined.getByRole('dialog')).toContainText('3,75');await refined.getByRole('dialog').getByLabel('Комментарий (необязательно)',{exact:true}).fill('');await refined.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(refined.getByRole('dialog')).not.toBeVisible();
   const expectedNew=(await calculateStudent(db,await full(refinement.id),a.id)).calculation;
   await brsNavigate(refined,'Сессия','Сессия');await expect(refined.locator('.brs-workspace:visible [data-student="'+a.id+'"] .brs-facts dd').nth(1)).toHaveText(points(expectedNew.total)+' / 100');
   const refinedStudent=await pageFor(ac,'/dashboard/grades?planId='+refinement.id);
@@ -300,7 +299,7 @@ try {
   for(const label of ['Запланирован','Активен','Ожидает закрытия','Закрыт'])assert.equal(await refinedStudent.getByText(label,{exact:true}).count(),0);
 
   assert.equal(await refinedStudent.locator('[data-module-total]').count(),0);
-  await refinedStudent.locator('.brs-student-full thead th').nth(2).hover();assert(await refinedStudent.locator('.brs-student-full .brs-column-active').count()>1);
+  await refinedStudent.locator('.brs-student-full .brs-progress-cell').first().hover();assert(await refinedStudent.locator('.brs-student-full .brs-cross-col').count()>1);
   await expect(refinedStudent.locator('.brs-student-full .brs-module-summary').first()).toContainText('М1:');
   await refinedStudent.locator('.brs-student-full .brs-module-summary').first().click();await expect(refinedStudent.getByRole('dialog')).toContainText('Итоги модуля');await refinedStudent.keyboard.press('Escape');
   await refinedStudent.getByRole('button',{name:'Список',exact:true}).click();await expect(refinedStudent.locator('.brs-compact')).toBeVisible();await expect(refinedStudent.locator('.brs-compact .brs-module-summary').first()).toContainText('М1:');
@@ -314,7 +313,7 @@ try {
   await brsNavigate(refinedStudent,'Сессия','Сессия');await expect(refinedStudent.locator('main h1:visible')).toHaveText('Сессия');
   await brsNavigate(refinedStudent,'Успеваемость','Успеваемость');
   await brsNavigate(refined,'Успеваемость','Электронный журнал');
-  await refined.getByRole('button',{name:new RegExp(a.name+', ДЗ1,')}).click();await refined.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await refined.getByLabel('Первичные баллы',{exact:true}).fill('36');await refined.getByRole('checkbox',{name:'Подтверждаю действие и сохранение истории изменений'}).check();await refined.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(refined.getByRole('dialog')).not.toBeVisible();
+  await refined.getByRole('button',{name:new RegExp(a.name+', ДЗ1,')}).click();await refined.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await refined.getByLabel('Первичные баллы',{exact:true}).fill('36');await refined.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(refined.getByRole('dialog')).not.toBeVisible();
   const liveResult=(await calculateStudent(db,await full(refinement.id),a.id)).calculation;
   await brsNavigate(refinedDean,'Допуски','Допуски и сессия');await expect(refinedDean.locator('.brs-workspace:visible [data-student="'+a.id+'"]')).toContainText('Ожидает подтверждения деканата');
   await brsNavigate(refinedStudent,'Сессия','Сессия');await expect(refinedStudent.locator('.brs-workspace:visible [data-student="'+a.id+'"] .brs-facts dd').nth(1)).toHaveText(points(liveResult.total)+' / 100');await expect(refinedStudent.locator('.brs-workspace:visible [data-student="'+a.id+'"]')).toContainText('Ожидает подтверждения деканата');

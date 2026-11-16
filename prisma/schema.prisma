@@ -9,6 +9,157 @@ datasource db {
   provider = "sqlite"
 }
 
+enum ServiceStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  CLARIFICATION_REQUIRED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+model ServiceDefinition {
+  code String
+  version Int
+  enabled Boolean @default(true)
+  configJson String
+  requests ServiceRequest[]
+  @@id([code, version])
+}
+
+// Routing is explicit; an unconfigured service is visible but cannot be submitted.
+model ServiceRoute {
+  id String @id @default(cuid())
+  serviceCode String
+  sourceDepartmentId String
+  source AcademicDepartment @relation("ServiceSource", fields: [sourceDepartmentId], references: [id], onDelete: Restrict)
+  departmentId String
+  department AcademicDepartment @relation("ServiceTarget", fields: [departmentId], references: [id], onDelete: Restrict)
+  active Boolean @default(true)
+  @@unique([serviceCode, sourceDepartmentId])
+}
+
+// Exactly one serviceCode or category must be set by the provisioning command.
+model ServiceGrant {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  departmentId String
+  department AcademicDepartment @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  serviceCode String?
+  category String?
+  readFiles Boolean @default(false)
+  readMilitary Boolean @default(false)
+  active Boolean @default(true)
+  @@index([userId, departmentId, active])
+}
+
+model ServiceRequest {
+  id String @id @default(cuid())
+  ownerId String
+  owner User @relation("ServiceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  serviceCode String
+  schemaVersion Int
+  definition ServiceDefinition @relation(fields: [serviceCode, schemaVersion], references: [code, version], onDelete: Restrict)
+  category String?
+  departmentId String?
+  department AcademicDepartment? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  assigneeId String?
+  assignee User? @relation("ServiceAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  status ServiceStatus @default(DRAFT)
+  version Int @default(1)
+  fieldsJson String @default("{}")
+  profileJson String?
+  confirmationHash String?
+  clarificationJson String?
+  resultText String?
+  completedBy String?
+  submittedAt DateTime?
+  completedAt DateTime?
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  documents ServiceDocument[]
+  history ServiceHistory[]
+  events ServiceEvent[]
+  @@index([ownerId, deletedAt, createdAt])
+  @@index([departmentId, status, createdAt])
+  @@index([assigneeId, status])
+}
+
+model ServiceDocument {
+  id String @id @default(cuid())
+  requestId String
+  request ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  uploadedBy String
+  kind String
+  slot String
+  name String
+  key String @unique
+  mime String
+  size Int
+  sha256 String
+  removedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([requestId, removedAt])
+}
+
+// Append-only history; snapshots are private, never copied into application logs.
+model ServiceHistory {
+  id String @id @default(cuid())
+  requestId String
+  request ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  actorId String
+  actorName String
+  action String
+  text String?
+  snapshotJson String?
+  createdAt DateTime @default(now())
+  @@index([requestId, createdAt, id])
+}
+
+// Addressed server events for the existing notifications UI (currently demo-only).
+model ServiceEvent {
+  id String @id @default(cuid())
+  recipientId String
+  recipient User @relation(fields: [recipientId], references: [id], onDelete: Restrict)
+  requestId String
+  request ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  version Int
+  type String
+  createdAt DateTime @default(now())
+  @@unique([requestId, version, type])
+  @@index([recipientId, createdAt])
+}
+
+model ServiceReceipt {
+  actorId String
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  key String
+  hash String
+  resultJson String
+  @@id([actorId, key])
+}
+
+model ServiceWriteState {
+  id String @id
+  version Int @default(0)
+}
+
+model MilitaryRecord {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  departmentId String
+  department AcademicDepartment @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  registrationStatus String?
+  office String?
+  documentType String?
+  documentNumber String?
+  verifiedAt DateTime?
+  updatedAt DateTime @updatedAt
+}
+
 enum Role {
   STUDENT
   TEACHER
@@ -45,6 +196,12 @@ model User {
   brsFinals BrsFinal[] @relation("FinalStudent")
   brsApprovedFinals BrsFinal[] @relation("FinalAuthor")
   brsAudits BrsAudit[]
+  serviceRequests ServiceRequest[] @relation("ServiceOwner")
+  serviceAssigned ServiceRequest[] @relation("ServiceAssignee")
+  serviceGrants ServiceGrant[]
+  serviceEvents ServiceEvent[]
+  serviceReceipts ServiceReceipt[]
+  militaryRecord MilitaryRecord?
 }
 
 // Credentials belong to Better Auth's credential Account, never to a profile.
@@ -250,6 +407,11 @@ model AcademicDepartment {
   name String
   groups StudyGroup[]
   deaneryAssignments DeaneryDepartmentAssignment[]
+  serviceRequests ServiceRequest[]
+  serviceGrants ServiceGrant[]
+  serviceSourceRoutes ServiceRoute[] @relation("ServiceSource")
+  serviceTargetRoutes ServiceRoute[] @relation("ServiceTarget")
+  militaryRecords MilitaryRecord[]
 
   @@unique([faculty, name])
 }
