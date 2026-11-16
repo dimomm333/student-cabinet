@@ -5,6 +5,7 @@ import { getOwnStudentProfile, educationStatusLabels, residenceStatusLabels } fr
 import { roleLabels } from "@/lib/roles";
 import CabinetPageLoading from "./cabinet-page-loading";
 import { Icon, type IconName } from "./icon";
+import { StudentMilitaryRecord } from "./student-military-record";
 
 type Field = [string, string | number | null | undefined];
 function Details({ title, icon, fields, children }: { title: string; icon: IconName; fields: Field[]; children?: React.ReactNode }) {
@@ -51,6 +52,7 @@ async function ProfileContent() {
         ["Предполагаемый год окончания", p?.expectedGraduationYear], ["Статус обучения", status],
       ]} />
       <Details title="Документы" icon="folder" fields={[["Номер личного дела", p?.personalFileNumber]]} />
+      <StudentMilitaryRecord />
       <Details title="Общежитие" icon="home" fields={[
         ["Статус проживания", p?.residenceStatus ? residenceStatusLabels[p.residenceStatus] : "Нет данных"],
         ["Общежитие", resident ? p?.dormitory : null], ["Комната", resident ? p?.dormitoryRoom : null],
@@ -59,7 +61,7 @@ async function ProfileContent() {
         ["Роль", roleLabels[user.role]], ["Дата регистрации", new Intl.DateTimeFormat("ru-RU", { dateStyle: "long", timeZone: "Europe/Moscow" }).format(user.createdAt)],
       ]} />
     </div>
-    <section className="student-profile-help"><span className="student-help-icon"><Icon name="help" size={25} /></span><div><h2>Нашли ошибку в данных?</h2><p>Изменения официальных данных и фотографии выполняются уполномоченными сотрудниками университета.</p><p>Услуга «Изменение данных в ЛКС» пока недоступна. В будущем заявка будет проходить проверку сотрудником деканата.</p><Link href="/dashboard/services" className="text-link">Перейти в раздел «Услуги» <Icon name="arrow" size={17} /></Link></div></section>
+    <section className="student-profile-help"><span className="student-help-icon"><Icon name="help" size={25} /></span><div><h2>Нашли ошибку в данных?</h2><p>Изменения официальных данных и фотографии выполняются уполномоченными сотрудниками университета после проверки заявления.</p><Link href="/dashboard/services?service=personal-change" className="text-link">Изменить персональные данные <Icon name="arrow" size={17} /></Link></div></section>
   </div>;
 }
 

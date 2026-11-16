@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     if (view === "events") {
       await liveActor(prisma, user);
       const events = await prisma.serviceEvent.findMany({ where: { recipientId: user.id }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 50, skip: page * 50 });
-      return response({ items: events.map(event => ({ ...event, href: `/dashboard/services?requestId=${encodeURIComponent(event.requestId)}` })), page, pageSize: 50, uiDelivery: "stage-2" });
+      return response({ items: events.map(event => ({ ...event, href: `/dashboard/services?requestId=${encodeURIComponent(event.requestId)}` })), page, pageSize: 50, uiDelivery: "connected" });
     }
     if (view === "military") return response(await getMilitaryRecord(prisma, user, p.get("studentId") ?? user.id));
     if (view === "file") {

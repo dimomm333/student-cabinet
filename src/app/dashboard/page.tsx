@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Icon, type IconName } from "@/components/icon";
 import { NewsCards } from "@/components/news-cards";
 import { SchedulePreview } from "@/components/schedule-preview";
-import { news, notifications } from "@/lib/demo-data";
+import { news } from "@/lib/demo-data";
+import { ServiceNotifications } from "@/components/services-notifications";
 import { requireRole } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { getStudentScheduleOverview } from "@/lib/schedule";
@@ -96,25 +97,7 @@ export default async function Dashboard() {
         </div>
 
         <aside className="dashboard-secondary">
-          <section className="panel notifications-panel" aria-labelledby="notification-title">
-            <div className="panel-heading">
-              <h2 id="notification-title">Уведомления <span className="count-badge">{notifications.length}</span></h2>
-              <Link href="/dashboard/notifications" className="text-link" aria-label="Все уведомления">
-                Все <Icon name="arrow" size={16} />
-              </Link>
-            </div>
-            <div className="notification-list">
-              {notifications.map((item) => (
-                <article key={item.title} className="notification-item">
-                  <span className={"notification-icon " + item.tone}><Icon name={item.icon} size={18} /></span>
-                  <div>
-                    <h3>{item.title}</h3><p>{item.text}</p>
-                    <span className="notification-time">{item.time}</span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+          <ServiceNotifications compact />
           <section className="tip-card">
             <span className="icon-tile"><Icon name="spark" /></span>
             <div>

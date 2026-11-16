@@ -44,7 +44,8 @@
     "db:services": "node --env-file-if-exists=.env scripts/prepare-services.mjs --apply",
     "db:services:seed": "node --env-file-if-exists=.env --conditions=react-server scripts/seed-services.mjs",
     "services:configure": "node --env-file-if-exists=.env --conditions=react-server scripts/configure-services.mjs",
-    "test:services": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-services.mjs"
+    "test:services": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-services.mjs",
+    "test:services:ui": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-services-ui.mjs"
   },
   "dependencies": {
     "@prisma/adapter-libsql": "7.10.1",

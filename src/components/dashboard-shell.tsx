@@ -45,7 +45,6 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
                 aria-current={active ? "page" : undefined}
               >
                 <Icon name={item.icon} /><span>{item.title}</span>
-                {item.slug === "notifications" && <span className="nav-count">3</span>}
               </Link>
             );
           })}
@@ -121,9 +120,9 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
             <Link
               href="/dashboard/notifications"
               className="icon-button notification-button"
-              aria-label="Уведомления: 3 демонстрационных сообщения"
+              aria-label="Уведомления"
             >
-              <Icon name="bell" /><span />
+              <Icon name="bell" />
             </Link>
             <ProfileLink name={name} role="STUDENT" />
             <LogoutButton className="icon-button exit-button" compact />

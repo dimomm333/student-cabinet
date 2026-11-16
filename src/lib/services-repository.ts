@@ -202,8 +202,9 @@ export async function getServiceRequest(db: PrismaClient, actor: ServiceActor, i
     if (!readFiles) readFiles = Boolean(await tx.serviceRequest.findFirst({ where: { id, AND: [await processorScope(tx, actor, true)] } }));
     const documents = readFiles ? await tx.serviceDocument.findMany({ where: { requestId: id }, select: { id: true, name: true, mime: true, size: true, kind: true, slot: true, removedAt: true, createdAt: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 50, skip: page * 50 }) : [];
     const history = await tx.serviceHistory.findMany({ where: { requestId: id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 50, skip: page * 50 });
+    const latestClarification = await tx.serviceHistory.findFirst({ where: { requestId: id, action: "CLARIFICATION_REQUIRED" }, select: { text: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
     const profile = user.role === "STUDENT" ? await profileFor(tx, request.ownerId, configFor(request.serviceCode, request.schemaVersion)) : null;
-    return { ...request, fields: JSON.parse(request.fieldsJson), profileSnapshot: request.profileJson ? JSON.parse(request.profileJson) : null, clarification: request.clarificationJson ? JSON.parse(request.clarificationJson) : null, fieldsJson: undefined, profileJson: undefined, clarificationJson: undefined, confirmationHash: undefined, profilePreview: profile && { values: profile.snapshot, confirmationHash: profile.hash, correctionService: "personal-change" }, documents, history, page, pageSize: 50 };
+    return { ...request, config: configFor(request.serviceCode, request.schemaVersion), latestClarification, permissions: { readFiles, student: user.role === "STUDENT" }, fields: JSON.parse(request.fieldsJson), profileSnapshot: request.profileJson ? JSON.parse(request.profileJson) : null, clarification: request.clarificationJson ? JSON.parse(request.clarificationJson) : null, fieldsJson: undefined, profileJson: undefined, clarificationJson: undefined, confirmationHash: undefined, profilePreview: profile && { values: profile.snapshot, confirmationHash: profile.hash, correctionService: "personal-change" }, documents, history, page, pageSize: 50 };
   });
 }
 export async function listServiceRequests(db: PrismaClient, actor: ServiceActor, filters: { page: number; code?: string; status?: string; from?: Date; to?: Date }) {
@@ -212,7 +213,7 @@ export async function listServiceRequests(db: PrismaClient, actor: ServiceActor,
     const scope = user.role === "STUDENT" ? { ownerId: user.id } : { AND: [{ status: { not: "DRAFT" as const } }, await processorScope(tx, actor)] };
     if (filters.status && !["DRAFT", "SUBMITTED", "IN_REVIEW", "CLARIFICATION_REQUIRED", "IN_PROGRESS", "COMPLETED", "REJECTED"].includes(filters.status)) throw new ServiceError("Неизвестный статус.");
     const where: Prisma.ServiceRequestWhereInput = { AND: [scope, { deletedAt: null, serviceCode: filters.code, status: filters.status as ServiceRequest["status"] | undefined, createdAt: { gte: filters.from, lte: filters.to } }] };
-    return { items: await tx.serviceRequest.findMany({ where, select: { id: true, serviceCode: true, schemaVersion: true, status: true, version: true, createdAt: true, updatedAt: true, assigneeId: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: filters.page * 50, take: 50 }), total: await tx.serviceRequest.count({ where }), page: filters.page, pageSize: 50 };
+    return { items: await tx.serviceRequest.findMany({ where, select: { id: true, serviceCode: true, schemaVersion: true, status: true, version: true, createdAt: true, submittedAt: true, updatedAt: true, assigneeId: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: filters.page * 50, take: 50 }), total: await tx.serviceRequest.count({ where }), page: filters.page, pageSize: 50 };
   });
 }
 export async function downloadServiceDocument(db: PrismaClient, actor: ServiceActor, id: string, storage: ServiceStorage) {

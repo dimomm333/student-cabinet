@@ -22,8 +22,10 @@ export async function verifyStudentProfile({page,context,db,user,foreign,base,se
   await expect(page.locator('.student-profile')).not.toContainText('Номер студенческого билета');
   await expect(page.locator('.student-profile')).not.toContainText('Подтверждение почты');
   await expect(page.getByRole('link',{name:'На главную кабинета',exact:true})).toHaveCount(0);
-  await expect(page.locator('.student-profile-help')).toContainText('пока недоступна');
-  await expect(page.locator('.student-profile-help a')).toHaveAttribute('href','/dashboard/services');
+  await expect(page.locator('.student-profile-help')).toContainText('после проверки заявления');
+  await expect(page.locator('.student-profile-help a')).toHaveAttribute('href','/dashboard/services?service=personal-change');
+  await expect(page.locator('.services-military')).toContainText('Сведения не предоставлены');
+  await expect(page.locator('.services-military a')).toHaveAttribute('href','/dashboard/services?service=military-change');
   const img=page.locator('.student-portrait img');
   await expect(img).toBeVisible();
   await expect.poll(()=>img.evaluate(image=>image.complete && image.naturalWidth>0)).toBe(true);
