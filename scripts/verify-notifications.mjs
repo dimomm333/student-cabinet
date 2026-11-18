@@ -178,7 +178,45 @@ try {
     page.on('pageerror', e => diagnostics.push(e.message)); page.on('console', msg => { if (/hydration|Next\.js encountered|Blocking Route|Instant validation|uncached data|unstable value/i.test(msg.text())) diagnostics.push(msg.text()); });
     return { context, page };
   }
+  async function checkHeader(page, home) {
+    let unread = 0;
+    const intercept = async route => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({ json: { items: [], unread, boundary: 0, nextCursor: null } });
+    };
+    await page.route('**/api/notifications', intercept);
+    await page.goto(base + home);
+    const bell = page.locator('.dashboard-header .notification-button');
+    await expect(bell).toHaveAttribute('href', home + '/notifications');
+    await expect(bell.locator('svg')).toBeVisible();
+    for (const count of [0, 1, 12, 101]) {
+      unread = count;
+      await page.evaluate(() => window.dispatchEvent(new Event('notifications-updated')));
+      if (count) await expect(bell.locator('.notification-bell-count')).toHaveText(count > 99 ? '99+' : String(count));
+      else await expect(bell.locator('.notification-bell-count')).toHaveCount(0);
+      for (const width of [360, 1366]) {
+        await page.setViewportSize({ width, height: 900 });
+        const geometry = await bell.evaluate(el => {
+          const r = el.getBoundingClientRect(), badge = el.querySelector('.notification-bell-count')?.getBoundingClientRect();
+          return { visible: r.x >= 0 && r.right <= innerWidth && r.width >= 32 && r.height >= 40,
+            badgeFits: !badge || (badge.x >= r.x && badge.right <= r.right && badge.y >= r.y && badge.bottom <= r.bottom),
+            round: !badge || (badge.height === 16 && badge.width === (el.querySelector('.notification-bell-count-wide') ? 22 : 16)) };
+        });
+        assert(geometry.visible && geometry.badgeFits && geometry.round, JSON.stringify(geometry));
+      }
+    }
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.screenshot({ path: resolve(root, home.slice(1) + '-header-360.png') });
+    await bell.focus(); await expect(bell).toBeFocused();
+    await page.keyboard.press('Enter'); await expect(page).toHaveURL(base + home + '/notifications');
+    await page.unroute('**/api/notifications', intercept);
+    await page.goto(base + home + '/notifications');
+    const restored = await (await page.request.get(base + '/api/notifications')).json();
+    await expect(page.locator('.notification-summary strong')).toHaveText(String(restored.unread));
+    await page.setViewportSize({ width: 1366, height: 900 });
+  }
   const { context, page } = await signed(alex);
+  await checkHeader(page, "/dashboard");
   const api = await context.request.get(base + '/api/notifications'); assert.equal(api.status(), 200); assert.match(api.headers()['cache-control'], /no-store/);
   assert.equal((await context.request.get(base + '/api/notifications?recipientId=' + maria.id)).status(), 400);
   assert.equal((await context.request.post(base + '/api/notifications', { headers: { Origin: 'https://evil.test' }, data: { operation: 'READ_ALL', boundary: 99999 } })).status(), 403);
@@ -188,6 +226,7 @@ try {
   await emit(alex, 'browser-no-f5');
   await expect(page.locator('.notification-summary strong')).toHaveText(String(previousCount + 1), { timeout: 18000 });
   await expect(page.locator('.desktop-sidebar .notification-count')).toHaveText(String(previousCount + 1));
+  await expect(page.locator('.dashboard-header .notification-bell-count')).toHaveText(previousCount + 1 > 99 ? '99+' : String(previousCount + 1));
   await expect(page.locator('.notification-list')).toContainText('browser-no-f5');
   await page.goto(base + '/dashboard/notifications'); await expect(page.locator('.notification-unread')).not.toHaveCount(0);
   assert.equal(await page.getByRole('tab').count(), 0); assert.equal(await page.getByRole('combobox').count(), 0);
@@ -205,6 +244,10 @@ try {
   await second.bringToFront(); await expect(second.locator('.notification-summary strong')).toHaveText('1', { timeout: 18000 });
   assert(countBeforeRead > 0); assert.equal((await listNotifications(db, a)).unread, 1);
   await page.unroute('**/api/notifications');
+  await page.bringToFront();
+  await page.getByRole('button', { name: 'Прочитать все', exact: true }).click();
+  await expect(page.locator('.notification-summary strong')).toHaveText('0');
+  await expect(page.locator('.dashboard-header .notification-bell-count')).toHaveCount(0);
   await page.setViewportSize({ width: 360, height: 800 }); await page.screenshot({ path: resolve(root, 'notifications-360.png'), fullPage: true });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   const retained = await page.locator('.services-event').count();
@@ -224,6 +267,7 @@ try {
   for (const u of [teacher, admin, staff, dean]) {
     const home = ({ TEACHER: '/teacher', ADMIN: '/admin', TECHNICAL_STAFF: '/staff', DEANERY_STAFF: '/deanery' })[u.role];
     const { context: c, page: p } = await signed(u);
+    await checkHeader(p, home);
     await emit(u, 'role-' + u.role); await p.goto(base + home + '/notifications'); await expect(p.locator('.notification-list')).toContainText('role-' + u.role);
     const data = await (await c.request.get(base + '/api/notifications')).json(); assert(!data.items.some(n => n.title.includes('private-maria') || n.title.includes('browser-no-f5')));
     await p.goto(base + home); await expect(p.locator('.notification-summary')).toBeVisible(); await c.close();

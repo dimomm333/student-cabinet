@@ -8,6 +8,7 @@ import { Brand } from "./brand";
 import { Icon } from "./icon";
 import { LogoutButton } from "./auth-controls";
 import { ProfileLink } from "./profile-link";
+import { NotificationBell } from "./notification-bell";
 import { NotificationBadge } from "./notifications-provider";
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
@@ -118,14 +119,7 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
           </div>
           <div className="header-actions">
             <span className="demo-badge"><span className="status-dot" /> Деморежим</span>
-            <Link
-              href="/dashboard/notifications"
-              className="icon-button notification-button"
-              aria-label="Уведомления"
-            >
-              <Icon name="bell" />
-              <NotificationBadge />
-            </Link>
+            <NotificationBell href="/dashboard/notifications" />
             <ProfileLink name={name} role="STUDENT" />
             <LogoutButton className="icon-button exit-button" compact />
           </div>

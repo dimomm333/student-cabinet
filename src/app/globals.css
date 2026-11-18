@@ -353,8 +353,10 @@ h1, h2, h3, p { margin: 0; }
 .header-actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
 .demo-badge { display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: #eef3e8; border: 1px solid #e1e8d8; color: #587347; font-size: 9px; font-weight: 500; border-radius: 5px; padding: 6px 9px; white-space: nowrap; }
 .demo-badge .status-dot { width: 5px; height: 5px; }
-.notification-button { position: relative; }
-.notification-button > span { position: absolute; top: 8px; right: 10px; width: 5px; height: 5px; border-radius: 50%; background: #bc8a54; outline: 2px solid white; }
+.notification-bell-icon { position: relative; display: inline-flex; width: 20px; height: 20px; }
+.notification-button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.notification-bell-count { position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; display: grid; place-items: center; padding: 0; border-radius: 50%; background: #b42332; color: #fff; box-shadow: 0 0 0 2px #fff; font-size: 10px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; pointer-events: none; }
+.notification-bell-count-wide { width: 22px; border-radius: 8px; }
 .header-profile { display: flex; align-items: center; gap: 10px; border-left: 1px solid var(--line); padding-left: 19px; }
 .avatar { width: 35px; height: 35px; display: grid; place-items: center; background: #e7ecdf; border: 1px solid #dce2d3; color: #526744; border-radius: 50%; font-size: 11px; font-weight: 650; }
 .profile-name { font-size: 11px; font-weight: 600; }

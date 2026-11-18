@@ -19,13 +19,14 @@ import { executeMaterialCommand, listMaterials, downloadMaterial } from '../src/
 import { receiveMaterialFile, readMaterialBlob, removeMaterialBlob } from '../src/lib/materials-storage.ts';
 import { listNotifications, savePreferences } from '../src/lib/notifications-repository.ts';
 import { allNotificationCategories } from '../src/lib/notifications-shared.ts';
+import { verifyResponsiveMaterials } from './materials-responsive-checks.mjs';
 
 mkdirSync('.local',{recursive:true});
 const root=mkdtempSync(resolve('.local/materials-test-')), source=createClient({url:getDatabaseUrl()}), before=await fingerprint(source);
 const env=provisionTestDatabase(resolve(root,'test.db')); process.env.DATABASE_URL=env.DATABASE_URL;
 process.env.MATERIALS_STORAGE_DIR=resolve(root,'files'); env.MATERIALS_STORAGE_DIR=process.env.MATERIALS_STORAGE_DIR;
 process.env.MATERIALS_MAX_FILE_MB='32'; env.MATERIALS_MAX_FILE_MB='32';
-const db=createPrismaClient(), results=[], diagnostics=[], password=randomBytes(24).toString('base64url');
+const db=createPrismaClient(), results=[], diagnostics=[], layoutMetrics=[], password=randomBytes(24).toString('base64url');
 let browser,child,logs='';
 const pass=name=>{results.push(name);console.info('PASS: '+name);};
 async function actor(u) { const s=await db.session.create({data:{userId:u.id,token:randomBytes(32).toString('hex'),expiresAt:new Date(Date.now()+3600000)}});return {id:u.id,sessionId:s.id}; }
@@ -221,7 +222,18 @@ try {
   await sp.getByRole('searchbox').fill('');
   const notice=(await listNotifications(db,a)).items.find(n=>n.source==='MATERIALS'&&n.href.includes(browserMaterial.id));assert(notice);
   await sp.goto(base+notice.href);await expect(sp.locator('.material-focused')).toContainText(browserMaterial.title);
-  for(const width of [1366,360]) {await sp.setViewportSize({width,height:900});await sp.screenshot({path:resolve(root,`student-${width}.png`),fullPage:true});assert(await sp.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.setViewportSize({width,height:900});await page.screenshot({path:resolve(root,`teacher-${width}.png`),fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));}
+  await sp.goto(base+'/dashboard/materials'+courseUrl);await expect(sp.locator('.material-card')).not.toHaveCount(0);
+  for(const width of [346,360,768,1366]) {
+    for(const [role,p] of [['student',sp],['teacher',page]]) {
+      await p.setViewportSize({width,height:900});await p.evaluate(()=>scrollTo(0,0));await p.screenshot({path:resolve(root,`${role}-${width}.png`),fullPage:true});assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+      const metrics=await p.locator('.materials-workspace').evaluate(el=>{const card=[...el.querySelectorAll('.material-card')].find(c=>c.querySelector('h3').textContent==='Браузерная практика');return {cardHeight:card.getBoundingClientRect().height,firstFileTop:el.querySelector('.material-card').getBoundingClientRect().top,filtersHeight:el.querySelector('.materials-tabs').getBoundingClientRect().height};});
+      assert(metrics.cardHeight<=(role==='student'?180:width===1366?180:250),`${role} ${width}px: ordinary file rows became too tall`);
+      assert(metrics.filtersHeight<=50,`${role} ${width}px: categories wrapped into multiple rows`);
+      layoutMetrics.push({role,width,...metrics});
+    }
+  }
+  await verifyResponsiveMaterials({studentPage:sp,teacherPage:page,base,courseUrl,termId,browserTitle:browserMaterial.title,root,pass});
+  await sp.goto(base+'/dashboard/materials'+courseUrl);await expect(sp.locator('.material-card')).not.toHaveCount(0);
   await studentBrowser.context.setOffline(true);await sp.getByRole('button',{name:'Обновить',exact:true}).click();await expect(sp.locator('.materials-workspace [role=alert]')).toBeVisible();await studentBrowser.context.setOffline(false);await sp.getByRole('button',{name:'Обновить',exact:true}).click();await expect(sp.locator('.materials-workspace [role=alert]')).toHaveCount(0);
   const foreignBrowser=await signed(maria);assert.equal((await foreignBrowser.context.request.get(base+'/api/materials?file='+browserMaterial.id)).status(),404);
   for(const u of [admin,staff,dean]) {const b=await signed(u);assert.equal((await b.context.request.get(base+'/api/materials')).status(),403);await b.context.close();}
@@ -232,5 +244,5 @@ try {
   if(browser)await browser.close();
   if(child){const exited=new Promise(r=>child.once('exit',r));child.kill();await Promise.race([exited,new Promise(r=>setTimeout(r,5000))]);}
   await db.$disconnect();assert.equal(await fingerprint(source),before,'Main database changed');source.close();
-  writeFileSync(resolve(root,'results.json'),JSON.stringify({results,diagnostics,sourceUnchanged:true},null,2),{mode:0o600});console.info('Materials report: '+root);
+  writeFileSync(resolve(root,'results.json'),JSON.stringify({results,diagnostics,layoutMetrics,sourceUnchanged:true},null,2),{mode:0o600});console.info('Materials report: '+root);
 }
