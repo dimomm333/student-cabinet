@@ -205,6 +205,10 @@ model User {
   notifications Notification[]
   notificationSettings NotificationSettings?
   notificationAudits NotificationAudit[]
+  materials LearningMaterial[]
+  materialFolders MaterialFolder[]
+  materialAudits MaterialAudit[]
+  materialReceipts MaterialReceipt[]
 }
 
 // Credentials belong to Better Auth's credential Account, never to a profile.
@@ -454,6 +458,7 @@ enum WeekPattern {
 }
 
 model StudyGroup {
+  materialTargets MaterialTarget[]
   id        String           @id @default(cuid())
   slug      String           @unique
   code      String           @unique
@@ -494,6 +499,8 @@ model AcademicDepartment {
 }
 
 model Discipline {
+  materials LearningMaterial[]
+  materialFolders MaterialFolder[]
   id        String   @id @default(cuid())
   code      String   @unique
   title     String
@@ -527,6 +534,8 @@ model Room {
 // Dates are date-only values represented at UTC midnight. Local timetable times
 // are minutes after midnight in the term's time zone, never browser-local times.
 model AcademicTerm {
+  materials LearningMaterial[]
+  materialFolders MaterialFolder[]
   id                   String          @id @default(cuid())
   code                 String          @unique
   name                 String
@@ -888,4 +897,107 @@ model ScheduleAuditGroup {
 
   @@id([auditId, groupId])
   @@index([groupId])
+}
+
+// Logical records and private physical blobs have separate lifecycles.
+model MaterialFile {
+  id String @id @default(cuid())
+  key String @unique
+  name String
+  mime String
+  size Int
+  sha256 String
+  createdAt DateTime @default(now())
+  materials LearningMaterial[]
+}
+
+model LearningMaterial {
+  id String @id @default(cuid())
+  disciplineId String
+  discipline Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  termId String
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  category String
+  folderId String?
+  folder MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: Restrict)
+  title String
+  searchTitle String @default("")
+  description String @default("")
+  url String?
+  fileId String?
+  file MaterialFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  status String @default("DRAFT")
+  version Int @default(1)
+  publishedAt DateTime?
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  targets MaterialTarget[]
+  publications MaterialPublicationItem[]
+  @@index([termId, disciplineId, status, deletedAt])
+  @@index([authorId, folderId])
+}
+
+model MaterialTarget {
+  materialId String
+  material LearningMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  groupId String
+  group StudyGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  @@id([materialId, groupId])
+  @@index([groupId])
+}
+
+model MaterialFolder {
+  id String @id @default(cuid())
+  authorId String
+  author User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  disciplineId String
+  discipline Discipline @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  termId String
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  category String
+  name String
+  parentId String?
+  parent MaterialFolder? @relation("MaterialTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children MaterialFolder[] @relation("MaterialTree")
+  materials LearningMaterial[]
+  version Int @default(1)
+  @@index([authorId, termId, disciplineId, category])
+}
+
+// A batch publication is one universal notification with current source scope.
+model MaterialPublication {
+  id String @id @default(cuid())
+  items MaterialPublicationItem[]
+}
+model MaterialPublicationItem {
+  publicationId String
+  publication MaterialPublication @relation(fields: [publicationId], references: [id], onDelete: Restrict)
+  materialId String
+  material LearningMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  @@id([publicationId, materialId])
+  @@index([materialId])
+}
+model MaterialReceipt {
+  actorId String
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  key String
+  hash String
+  resultJson String
+  @@id([actorId, key])
+}
+model MaterialAudit {
+  id String @id @default(cuid())
+  actorId String
+  actor User @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  action String
+  objectId String
+  createdAt DateTime @default(now())
+  @@index([objectId, createdAt])
+}
+model MaterialWriteState {
+  id String @id
+  version Int @default(0)
 }

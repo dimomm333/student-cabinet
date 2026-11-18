@@ -5,7 +5,7 @@ export const sections: { slug: string; title: string; icon: IconName; descriptio
   { slug: "schedule", title: "Моё расписание", icon: "calendar", description: "Здесь появится полное расписание занятий с выбором недели, аудиториями и преподавателями.", group: "Учёба" },
   { slug: "session", title: "Сессия", icon: "book", description: "Допуски, экзаменационные попытки, предварительные и утверждённые результаты БРС.", group: "Учёба" },
   { slug: "grades", title: "Успеваемость", icon: "chart", description: "Модули, ДЗ, лабораторные, рубежные контроли, посещаемость и баллы.", group: "Учёба" },
-  { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Здесь будут лекции, задания и материалы для самостоятельной работы.", group: "Учёба" },
+  { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Лекции, задания и опубликованные материалы ваших дисциплин.", group: "Учёба" },
   { slug: "services", title: "Услуги", icon: "grid", description: "Здесь можно будет заказать справку и обратиться в университетские службы.", group: "Кампус" },
   { slug: "notifications", title: "Уведомления", icon: "bell", description: "Здесь появится история уведомлений об учёбе и событиях университета.", group: "Кампус" },
   { slug: "news", title: "Новости", icon: "news", description: "Здесь будет полная лента новостей, анонсов и событий студенческой жизни.", group: "Кампус" },

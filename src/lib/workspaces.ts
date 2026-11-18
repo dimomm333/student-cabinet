@@ -34,7 +34,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       { slug: "students", title: "Студенты", icon: "user", description: "Здесь появятся студенты закреплённых учебных групп." },
       { slug: "grades", title: "Журнал оценок", icon: "chart", description: "Модульный журнал баллов и посещаемости." },
       { slug: "session", title: "Сессия", icon: "book", description: "Допуски, экзаменационные попытки и фиксация итогов." },
-      { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Здесь можно будет размещать учебные материалы." },
+      { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Документы, ссылки, папки и публикации для ваших групп." },
       { slug: "consultations", title: "Консультации", icon: "clock", description: "Здесь появятся консультации и запись на них." },
       { slug: "announcements", title: "Объявления", icon: "news", description: "Здесь можно будет публиковать объявления для групп." },
     ],

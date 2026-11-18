@@ -2,6 +2,7 @@ import "server-only";
 import type { Prisma, PrismaClient, Role } from "../generated/prisma/client.ts";
 import { isSessionWithinLifetime } from "./session-policy.ts";
 import { serviceProcessorScope } from "./services-permissions.ts";
+import { materialScope } from "./materials-permissions.ts";
 import { allNotificationCategories, safeNotificationHref, serviceNotificationTitles, type NotificationCategory, type NotificationFeed } from "./notifications-shared.ts";
 
 export type NotificationDB = Prisma.TransactionClient;
@@ -25,7 +26,7 @@ export type NotificationInput = { sourceKey: string; source: "SERVICES" | "BRS" 
 // never expose arbitrary recipients or event content through a client endpoint.
 export async function emitNotification(tx: NotificationDB, input: NotificationInput) {
   const { recipients, ...data } = input;
-  if (data.source === "MATERIALS") throw new NotificationError("Источник учебных материалов ещё не подключён.");
+  if (data.source === "MATERIALS" && !(await tx.materialPublication.count({ where: { id: data.sourceId, items: { some: {} } } }))) throw new NotificationError("Публикация учебных материалов недоступна.");
   // An already committed event is complete, including suppressed recipients.
   // A retry after a preference change must not deliver an old event anew.
   const prior = await tx.notificationEvent.findUnique({ where: { sourceKey: data.sourceKey } });
@@ -70,11 +71,13 @@ export async function notificationScope(db: NotificationDB, user: { id: string; 
     { attempts: { some: { studentId: user.id } } }, { occurrences: { some: { attendance: { some: { studentId: user.id } } } } }, { finals: { some: { studentId: user.id } } },
   ] }, select: { id: true } }) : [];
   const requests = await db.serviceRequest.findMany({ where: { deletedAt: null, ...(user.role === "STUDENT" ? { ownerId: user.id } : { status: { not: "DRAFT" }, AND: [await serviceProcessorScope(db, user)] }) }, select: { id: true } });
+  const materialPublications = user.role === "STUDENT" ? await db.materialPublication.findMany({ where: { items: { some: { material: await materialScope(db, user) } } }, select: { id: true } }) : [];
   return { recipientId: user.id, recipientRole: user.role, OR: [
     { event: { source: "SYSTEM" } },
     { event: { source: "SERVICES", sourceId: { in: requests.map(r => r.id) } } },
     ...(user.role === "STUDENT" ? [
       { event: { source: "BRS", sourceId: { in: plans.map(p => p.id) } } },
+      { event: { source: "MATERIALS", sourceId: { in: materialPublications.map(p => p.id) } } },
       { event: { source: "SCHEDULE" }, scopeGroupId: profile?.groupId ?? "" },
       { event: { source: "NEWS" }, OR: [{ scopeDepartmentId: null }, { scopeDepartmentId: profile?.group?.departmentId ?? "" }] },
     ] : []),

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./services.css";
+@import "./materials.css";
 
 :root {
   --background: #f7f8f5;
