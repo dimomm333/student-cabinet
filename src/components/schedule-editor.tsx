@@ -73,6 +73,7 @@ export function ScheduleEditor({ model }: { model: ScheduleEditorModel }) {
 
 function EditorForm({ model, target, onClose }: { model: ScheduleEditorModel; target: Target; onClose: () => void }) {
   const [state, action, pending] = useActionState(saveSchedule, { success: false, message: "" });
+  useEffect(() => { if (state.success) window.dispatchEvent(new Event("notifications-updated")); }, [state]);
   const entry = model.entries.find(item => item.id === target.entryId);
   const exception = model.exceptions.find(item => item.id === target.exceptionId);
   const values = exception ?? entry;

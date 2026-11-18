@@ -1,4 +1,5 @@
 import "server-only";
+import { emitScheduleChanges } from "./notifications-sources.ts";
 import type { Prisma, PrismaClient } from "../generated/prisma/client.ts";
 import { DeaneryAccessDenied, getDeaneryContext, deaneryGroupWhere, type DeaneryActor } from "./deanery-repository.ts";
 import { DAY_MS, isoDate, parseCalendarDate, parseDateInput, minuteLabel } from "./schedule-calendar.ts";
@@ -90,6 +91,7 @@ export async function executeScheduleCommand(db: PrismaClient, actor: DeaneryAct
       // conflict reads and writes across workers; no in-memory mutex is relied on.
       await tx.scheduleWriteState.upsert({ where: { id: "schedule" }, create: { id: "schedule", revision: 1 }, update: { revision: { increment: 1 } } });
       await getDeaneryContext(tx, actor);
+      const notificationsBefore = await loadScheduleRecords(tx);
       let entry = command.entryId ? await tx.scheduleEntry.findUnique({ where: { id: command.entryId }, include: pairInclude }) : null;
       let exception = command.exceptionId ? await tx.scheduleException.findUnique({ where: { id: command.exceptionId }, include: pairInclude }) : null;
       if (exception?.entryId && !entry) entry = await tx.scheduleEntry.findUnique({ where: { id: exception.entryId }, include: pairInclude });
@@ -156,7 +158,14 @@ export async function executeScheduleCommand(db: PrismaClient, actor: DeaneryAct
         checkConflicts(records, groups, from, to, pair => command.operation === "RESTORE" ? pair.entryId === entry?.id && isoDate(pair.date) === isoDate(from!) : pair.record.id === objectId);
       }
       const afterJson = exception ? snapshot(exception) : entry ? snapshot(entry) : null;
-      await tx.scheduleAudit.create({ data: { actorId: actor.id, objectId, action: command.operation, beforeJson, afterJson, groups: { create: [...new Set(affected)].map(groupId => ({ groupId })) } } });
+      const notificationAudit = await tx.scheduleAudit.create({ data: { actorId: actor.id, objectId, action: command.operation, beforeJson, afterJson, groups: { create: [...new Set(affected)].map(groupId => ({ groupId })) } } });
+      // Compare the entire affected periods on both sides, including an UPDATE
+      // moving a regular entry into a different term.
+      const oldEntry = notificationsBefore.entries.find(e => e.id === command.entryId);
+      const oldException = notificationsBefore.exceptions.find(e => e.id === command.exceptionId);
+      const start = new Date(Math.min(from.getTime(), oldEntry?.term.startsOn.getTime() ?? from.getTime(), oldException?.date.getTime() ?? from.getTime()));
+      const end = new Date(Math.max(to.getTime(), oldEntry?.term.endsOn.getTime() ?? to.getTime(), oldException?.date.getTime() ?? to.getTime()));
+      await emitScheduleChanges(tx, notificationAudit.id, notificationsBefore, await loadScheduleRecords(tx), start, end);
       const published = exception ? isPublicPair(exception) : entry && !entry.isDeleted ? isPublicPair(entry) : true;
       return { objectId, message: published ? "Изменения сохранены. Расписание обновлено." : "Сохранено. Публикация в открытом расписании ограничена настройками занятия, периода или участников." };
     }, { timeout: 20000, maxWait: 10000 });

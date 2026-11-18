@@ -26,6 +26,10 @@ async function fingerprint() {
 }
 const before = await fingerprint();
 process.env.DATABASE_URL = provisionTestDatabase(resolve(root, "test.db")).DATABASE_URL;
+// This test writes profile fixtures from a second process while Next serves
+// reads. WAL is scoped to this newly provisioned SQLite database only.
+const fixtureJournal = createClient({ url: process.env.DATABASE_URL });
+await fixtureJournal.execute("PRAGMA journal_mode = WAL"); fixtureJournal.close();
 const db = createPrismaClient(), password = randomBytes(24).toString("base64url");
 await db.account.updateMany({ where: { providerId: "credential" }, data: { password: await hashPassword(password) } });
 // Keep the user's running next dev and its build cache untouched as well.
@@ -59,6 +63,50 @@ async function settle(page) {
   await page.waitForLoadState("networkidle", { timeout: 60000 });
   const overlay = await page.locator("nextjs-portal").allTextContents();
   for (const text of overlay) if (warningPattern.test(text)) diagnostics.push({ url: page.url(), type: "overlay", message: text });
+}
+async function verifyNotificationsNavigation(page, context) {
+  await page.goto(base + '/dashboard/notifications'); await settle(page);
+  await expect(page.locator('main h1:visible')).toHaveText('Уведомления');
+  await page.goto(base + '/dashboard'); await settle(page);
+  await page.locator('.services-notifications .panel-heading a').scrollIntoViewIfNeeded();
+  // Next's installed Link explicitly disables prefetch in development.
+  // Assert prefetched timing in production; dev still checks every actual
+  // navigation, loading diagnostics, session/role refresh and ownership.
+  await page.locator('.services-notifications .panel-heading a').hover();
+  await page.waitForLoadState('networkidle');
+  await page.evaluate(() => {
+    window.__notificationNavClicked = false;
+    document.querySelector('.services-notifications .panel-heading a').addEventListener('click', () => { window.__notificationNavClicked = true; }, { once: true });
+  });
+  const network = await context.newCDPSession(page);
+  await network.send('Network.enable');
+  if (production) await network.send('Network.emulateNetworkConditions', { offline: false, latency: 2500, downloadThroughput: 1000000, uploadThroughput: 1000000 });
+  const before = await page.evaluate(() => performance.timeOrigin);
+  try {
+    // Partial Prefetching may already have the non-personal inbox shell. Both
+    // that shell and the Suspense fallback are valid instant UI. Require one
+    // before the deliberately delayed network response could have completed.
+    await Promise.all([
+      page.locator('.services-notifications .panel-heading a').click(),
+      (async () => {
+        await page.waitForFunction(() => window.__notificationNavClicked);
+        if (production) await expect(page.locator('section[aria-busy=true][aria-label]').or(page.getByRole('heading', { name: 'Уведомления', level: 1, exact: true })).first()).toBeVisible({ timeout: 1500 });
+      })(),
+    ]);
+  } finally {
+    await network.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await network.detach();
+  }
+  await page.waitForURL(base + '/dashboard/notifications'); await settle(page);
+  await expect(page.locator('main h1:visible')).toHaveText('Уведомления');
+  assert.equal(await page.evaluate(() => performance.timeOrigin), before);
+  await page.goto(base + '/dashboard'); await settle(page);
+  await page.locator('.desktop-sidebar a[href="/dashboard/notifications"]').click(); await settle(page);
+  await expect(page.locator('main h1:visible')).toHaveText('Уведомления');
+  const anonymous = await browser.newContext();
+  try { const denied = await anonymous.newPage(); await denied.goto(base + '/dashboard/notifications'); await denied.waitForURL(base + '/login'); } finally { await anonymous.close(); }
+  assert.equal((await context.request.get(base + '/api/services?view=events')).status(), 200);
+  pass('Notifications: direct URL, home widget, sidebar, inbox/loading shell and anonymous denial', { mode: production ? 'production' : 'development', slowPrefetchedNavigation: production });
 }
 async function verifyProfile(page, context, actor, home) {
   const user = await db.user.findUniqueOrThrow({ where: { email: actor.email } });
@@ -186,6 +234,7 @@ try {
     assert.equal(await page.evaluate(() => performance.timeOrigin), documentTime, "Menu navigation reloaded the document");
     await page.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}.png`), fullPage: true });
     pass(`${actor.role}: direct visit, menu and return home`, { sections: links.length });
+    if (!observe && actor.role === 'STUDENT') await verifyNotificationsNavigation(page, context);
     if (!observe) await verifyProfile(page, context, actor, home);
     if (!observe) {
       for (const other of Object.values(homes).filter(path => path !== home)) {

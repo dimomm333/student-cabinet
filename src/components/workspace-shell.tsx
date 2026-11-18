@@ -9,6 +9,7 @@ import { Brand } from "./brand";
 import { Icon } from "./icon";
 import { LogoutButton } from "./auth-controls";
 import { ProfileLink } from "./profile-link";
+import { NotificationBadge } from "./notifications-provider";
 
 export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; name: string; children: ReactNode }) {
   const pathname = usePathname();
@@ -21,7 +22,7 @@ export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; 
     {[{ slug: "", title: "Главная", icon: "home" as const }, ...workspace.sections].map((item) => {
       const href = home + (item.slug ? `/${item.slug}` : "");
       return <Link key={href} href={href} onClick={close} className={"nav-item" + (pathname === href ? " active" : "")} aria-current={pathname === href ? "page" : undefined}>
-        <Icon name={item.icon} /><span>{item.title}</span>
+        <Icon name={item.icon} /><span>{item.title}</span>{item.slug === "notifications" && <NotificationBadge />}
       </Link>;
     })}
   </nav>;

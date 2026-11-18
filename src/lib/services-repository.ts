@@ -1,10 +1,23 @@
 import "server-only";
+import { emitServiceNotification } from "./notifications-repository.ts";
+import { serviceProcessorScope } from "./services-permissions.ts";
 import type { Prisma, PrismaClient, ServiceRequest } from "../generated/prisma/client.ts";
 import { configFor, ServiceError, serviceCatalog, validateFields, validateDocuments, type ServiceConfig } from "./services-catalog.ts";
 import { digest, type ServiceStorage } from "./services-storage.ts";
 import { isSessionWithinLifetime } from "./session-policy.ts";
 
 type DB = Prisma.TransactionClient;
+// Only an explicit, verified official record can waive the requirement. Gender
+// and a missing record say nothing about a woman's military specialty.
+export async function militaryEligibility(db: DB, userId: string) {
+  const record = await db.militaryRecord.findUnique({ where: { userId }, select: { registrationStatus: true, verifiedAt: true } });
+  if (!record?.verifiedAt) return "UNKNOWN" as const;
+  if (["NOT_REQUIRED", "Воинский учёт не требуется"].includes(record.registrationStatus ?? "")) return "NOT_REQUIRED" as const;
+  return record.registrationStatus ? "REQUIRED" as const : "UNKNOWN" as const;
+}
+async function checkMilitaryEligibility(db: DB, userId: string, code: string) {
+  if (code === "military-change" && await militaryEligibility(db, userId) === "NOT_REQUIRED") throw new ServiceError("Воинский учёт для вас не требуется", 403);
+}
 export type ServiceActor = { id: string; sessionId: string };
 export async function liveActor(db: DB, actor: ServiceActor) {
   const session = await db.session.findFirst({ where: { id: actor.sessionId, userId: actor.id }, include: { user: true } });
@@ -17,11 +30,7 @@ export async function seedServices(db: PrismaClient) {
 }
 export async function processorScope(db: DB, actor: ServiceActor, files = false, military = false): Promise<Prisma.ServiceRequestWhereInput> {
   const user = await liveActor(db, actor);
-  if (!["DEANERY_STAFF", "TECHNICAL_STAFF", "ADMIN"].includes(user.role)) return { id: { in: [] } };
-  const grants = await db.serviceGrant.findMany({ where: { userId: user.id, active: true, ...(files ? { readFiles: true } : {}), ...(military ? { readMilitary: true } : {}), ...(user.role === "DEANERY_STAFF" ? { department: { deaneryAssignments: { some: { userId: user.id } } } } : {}) } });
-  const valid = grants.filter(grant => Boolean(grant.serviceCode) !== Boolean(grant.category));
-  if (!valid.length) return { id: { in: [] } };
-  return { OR: valid.map(grant => ({ departmentId: grant.departmentId, ...(grant.serviceCode ? { serviceCode: grant.serviceCode } : { category: grant.category }), ...(grant.readMilitary ? {} : { AND: [{ serviceCode: { not: "military-change" } }] }), OR: [{ assigneeId: null }, { assigneeId: user.id }] })) };
+  return serviceProcessorScope(db, user, files, military);
 }
 export async function visibleRequest(db: DB, actor: ServiceActor, id: string, files = false) {
   const user = await liveActor(db, actor);
@@ -91,6 +100,7 @@ export async function executeServiceCommand(db: PrismaClient, actor: ServiceActo
     if (command.operation === "CREATE") {
       if (user.role !== "STUDENT") throw new ServiceError("Только студент создаёт заявления.", 403);
       const config = configFor(command.code ?? "");
+      await checkMilitaryEligibility(tx, user.id, config.code);
       const definition = await tx.serviceDefinition.findUnique({ where: { code_version: { code: config.code, version: config.version } } });
       if (!definition?.enabled) throw new ServiceError("Услуга недоступна.", 409);
       if (await tx.serviceRequest.count({ where: { ownerId: user.id, status: "DRAFT", deletedAt: null } }) >= 50) throw new ServiceError("Не более 50 черновиков.", 409);
@@ -103,6 +113,7 @@ export async function executeServiceCommand(db: PrismaClient, actor: ServiceActo
       const patch: Prisma.ServiceRequestUncheckedUpdateInput = { version: { increment: 1 } };
       switch (command.operation) {
         case "SAVE": {
+          await checkMilitaryEligibility(tx, user.id, config.code);
           const fields = validateFields(config, command.fields, true);
           // Null/empty values explicitly clear fields; unknown keys were rejected above.
           editable(request, owner, undefined, Object.keys(command.fields as object));
@@ -116,6 +127,7 @@ export async function executeServiceCommand(db: PrismaClient, actor: ServiceActo
           patch.deletedAt = new Date(); break;
         case "SUBMIT": {
           editable(request, owner);
+          await checkMilitaryEligibility(tx, user.id, config.code);
           const definition = await tx.serviceDefinition.findUniqueOrThrow({ where: { code_version: { code: config.code, version: config.version } } });
           if (!definition.enabled) throw new ServiceError("Услуга отключена.", 409);
           const fields = validateFields(config, JSON.parse(request.fieldsJson), false);
@@ -158,6 +170,7 @@ export async function executeServiceCommand(db: PrismaClient, actor: ServiceActo
           if (["DRAFT", "COMPLETED", "REJECTED"].includes(request.status)) throw new ServiceError("Переписка закрыта.", 409);
           historyText = message(command.text, true); if (!owner) notify = "STAFF_REPLY"; break;
         case "UPLOAD": {
+          if (owner) await checkMilitaryEligibility(tx, user.id, config.code);
           if (!file) throw new ServiceError("Отсутствует файл.");
           const kind = owner ? "STUDENT" : "RESULT";
           if (command.kind !== kind) throw new ServiceError("Недопустимый вид документа.");
@@ -187,7 +200,10 @@ export async function executeServiceCommand(db: PrismaClient, actor: ServiceActo
     }
     snapshotJson ??= JSON.stringify({ version: request.version, status: request.status, fields: JSON.parse(request.fieldsJson), documentId });
     await tx.serviceHistory.create({ data: { requestId: request.id, actorId: user.id, actorName: user.name, action: command.operation === "TRANSITION" ? request.status : command.operation, text: historyText, snapshotJson } });
-    if (notify) await tx.serviceEvent.create({ data: { recipientId: request.ownerId, requestId: request.id, version: request.version, type: notify } });
+    if (notify) {
+      const event = await tx.serviceEvent.create({ data: { recipientId: request.ownerId, requestId: request.id, version: request.version, type: notify } });
+      await emitServiceNotification(tx, event);
+    }
     const result = { id: request.id, version: request.version, ...(documentId ? { documentId } : {}) };
     await tx.serviceReceipt.create({ data: { actorId: user.id, key: command.requestId, hash, resultJson: JSON.stringify(result) } });
     return { ...result, replayed: false };
@@ -200,11 +216,13 @@ export async function getServiceRequest(db: PrismaClient, actor: ServiceActor, i
     const user = await liveActor(tx, actor);
     let readFiles = user.role === "STUDENT";
     if (!readFiles) readFiles = Boolean(await tx.serviceRequest.findFirst({ where: { id, AND: [await processorScope(tx, actor, true)] } }));
-    const documents = readFiles ? await tx.serviceDocument.findMany({ where: { requestId: id }, select: { id: true, name: true, mime: true, size: true, kind: true, slot: true, removedAt: true, createdAt: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 50, skip: page * 50 }) : [];
-    const history = await tx.serviceHistory.findMany({ where: { requestId: id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 50, skip: page * 50 });
+    const documents = readFiles ? await tx.serviceDocument.findMany({ where: { requestId: id }, select: { id: true, name: true, mime: true, size: true, kind: true, slot: true, removedAt: true, createdAt: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 51, skip: page * 50 }) : [];
+    // Keep all audit rows. Filter technical saves before offset/limit so a page
+    // full of autosaves cannot hide later meaningful events from the UI.
+    const history = await tx.serviceHistory.findMany({ where: { requestId: id, action: { not: "SAVE" } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 51, skip: page * 50 });
     const latestClarification = await tx.serviceHistory.findFirst({ where: { requestId: id, action: "CLARIFICATION_REQUIRED" }, select: { text: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
     const profile = user.role === "STUDENT" ? await profileFor(tx, request.ownerId, configFor(request.serviceCode, request.schemaVersion)) : null;
-    return { ...request, config: configFor(request.serviceCode, request.schemaVersion), latestClarification, permissions: { readFiles, student: user.role === "STUDENT" }, fields: JSON.parse(request.fieldsJson), profileSnapshot: request.profileJson ? JSON.parse(request.profileJson) : null, clarification: request.clarificationJson ? JSON.parse(request.clarificationJson) : null, fieldsJson: undefined, profileJson: undefined, clarificationJson: undefined, confirmationHash: undefined, profilePreview: profile && { values: profile.snapshot, confirmationHash: profile.hash, correctionService: "personal-change" }, documents, history, page, pageSize: 50 };
+    return { ...request, eligibility: user.role === "STUDENT" && request.serviceCode === "military-change" ? await militaryEligibility(tx, user.id) : undefined, config: configFor(request.serviceCode, request.schemaVersion), latestClarification, permissions: { readFiles, student: user.role === "STUDENT" }, fields: JSON.parse(request.fieldsJson), profileSnapshot: request.profileJson ? JSON.parse(request.profileJson) : null, clarification: request.clarificationJson ? JSON.parse(request.clarificationJson) : null, fieldsJson: undefined, profileJson: undefined, clarificationJson: undefined, confirmationHash: undefined, profilePreview: profile && { values: profile.snapshot, confirmationHash: profile.hash, correctionService: "personal-change" }, documents: documents.slice(0, 50), history: history.slice(0, 50), historyHasMore: history.length > 50, documentsHasMore: documents.length > 50, page, pageSize: 50 };
   });
 }
 export async function listServiceRequests(db: PrismaClient, actor: ServiceActor, filters: { page: number; code?: string; status?: string; from?: Date; to?: Date }) {

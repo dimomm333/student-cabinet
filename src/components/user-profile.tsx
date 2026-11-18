@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { roleHomes, roleLabels } from "@/lib/roles";
 import CabinetPageLoading from "./cabinet-page-loading";
+import { NotificationSettings } from "./notification-settings";
 
 type Field = [label: string, value: string | number | null | undefined];
 function ProfileFields({ title, fields }: { title: string; fields: Field[] }) {
@@ -36,6 +37,7 @@ async function ProfileContent({ role }: { role: Exclude<Role, "STUDENT"> }) {
   ] : [];
   return <>
     <div className="dashboard-title"><div><span className="eyebrow">{roleLabels[role]}</span><h1>Профиль</h1><p>Ваши данные из учётной записи университета.</p></div></div>
+    <NotificationSettings />
     <div className="user-profile">
       <ProfileFields title="Учётная запись" fields={[
         ["Имя и фамилия", user.name], ["Электронная почта", user.email], ["Роль", roleLabels[user.role]],
@@ -44,7 +46,7 @@ async function ProfileContent({ role }: { role: Exclude<Role, "STUDENT"> }) {
       ]} />
       {!!details.length && <ProfileFields title="Работа в университете" fields={details} />}
     </div>
-    <p className="profile-note">Профиль доступен только для просмотра. Для уточнения данных обратитесь к ответственному сотруднику университета.</p>
+    <p className="profile-note">Данные учётной записи доступны только для просмотра. Для уточнения данных обратитесь к ответственному сотруднику университета.</p>
     <Link href={roleHomes[role]} className="button button-primary">На главную кабинета</Link>
   </>;
 }

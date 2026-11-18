@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Icon } from "./icon";
+import { clearRecovery } from "@/lib/services-recovery";
 
 export function LogoutButton({ className = "button button-outline", compact = false }: {
   className?: string;
@@ -14,12 +15,18 @@ export function LogoutButton({ className = "button button-outline", compact = fa
     setPending(true);
     setError(false);
     try {
+      const saves: Promise<unknown>[] = [];
+      window.dispatchEvent(new CustomEvent("services-before-logout", { detail: saves }));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([Promise.allSettled(saves), new Promise(resolve => { timer = setTimeout(resolve, 2000); })]);
+      if (timer) clearTimeout(timer);
       const response = await fetch("/api/auth/sign-out", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
       });
       if (!response.ok) throw new Error("logout failed");
+      clearRecovery();
       // A full navigation also discards Next.js' in-memory authenticated router cache.
       window.location.replace("/login");
     } catch {

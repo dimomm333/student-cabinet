@@ -1028,3 +1028,26 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-student-progress .brs-module-summary small { display: block; color: inherit; white-space: normal; font-size: 10px; font-weight: 700; }
 @media (max-width:700px) { .brs-student-full { --brs-subject-width: 96px; } .brs-student-progress .brs-full .brs-sticky { min-width: 0; width: var(--brs-subject-width); max-width: var(--brs-subject-width); } .brs-student-progress .brs-full .brs-course-heading { font-size: 12px; } }
 @media (max-width:340px) { .brs-student-full { --brs-subject-width: 88px; } }
+
+.notification-count { margin-left: auto; min-width: 23px; padding: 2px 6px; border-radius: 12px; background: #e6efe9; color: #245442; text-align: center; font-size: 12px; font-weight: 700; }
+.notification-button .notification-count { position: absolute; right: -6px; top: -5px; font-size: 10px; min-width: 19px; }
+.notifications-heading { gap: 12px; flex-wrap: wrap; }
+.notification-summary { font-size: 13px; color: #52645e; margin-top: 6px; }
+.notification-list .notification-unread { background: #f0f7f2; border-left: 3px solid #387354; }
+.notification-list .notification-read { border-left: 3px solid transparent; }
+.notification-item > div { min-width: 0; overflow-wrap: anywhere; }
+.notification-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 11px; }
+.notification-category { background: #edf0ed; color: #42554b; border-radius: 6px; padding: 2px 7px; }
+.notification-new { color: #21583d; font-weight: 700; }
+.notification-item:focus-visible { outline: 3px solid #387354; outline-offset: -3px; }
+.notification-settings { padding: 24px; margin-bottom: 24px; display: grid; gap: 16px; }
+.notification-settings h2 { font-size: 20px; font-weight: 700; }
+.notification-settings p { line-height: 1.6; color: #52645e; }
+.notification-settings fieldset { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 12px; border: 1px solid #d9e4dc; border-radius: 10px; }
+.notification-settings legend { padding: 0 5px; font-weight: 600; }
+.notification-settings label { display: flex; align-items: center; gap: 8px; line-height: 1.5; }
+.notification-settings input[type=checkbox] { flex-shrink: 0; width: 17px; height: 17px; accent-color: #387354; }
+.notification-settings input:not([type=checkbox]):not([type=hidden]), .notification-settings textarea, .notification-settings select { border: 1px solid #b9c9bf; border-radius: 6px; padding: 8px; width: 100%; min-width: 0; }
+.notification-settings label:has(textarea), .notification-settings label:has(select), .notification-settings label:has(input:not([type=checkbox])) { align-items: stretch; flex-direction: column; }
+.notification-settings .button { justify-self: start; }
+@media (max-width: 600px) { .notification-settings { padding: 16px; } .notification-settings fieldset { flex-direction: column; } .notifications-heading .button { padding: 10px; font-size: 12px; } }

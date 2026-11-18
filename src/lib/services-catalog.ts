@@ -1,3 +1,4 @@
+import { serviceSearchDictionary } from "./services-search-dictionary.ts";
 // Demonstration policy, not legal requirements. Retain old versions when adding v2.
 export const categories = {
   DOCUMENTS: "Справки и документы", FINANCE: "Финансовые вопросы", ACADEMIC: "Учебные вопросы",
@@ -74,8 +75,16 @@ export function searchServices(query: string) {
   if (query.length > 1000) throw new ServiceError("Поисковый запрос слишком длинный.");
   const words = normalize(query).split(" ").filter(word => word.length > 2).slice(0, 40);
   return serviceCatalog.filter(service => configFor(service.code).version === service.version).map(service => {
-    const title = normalize(service.title), aliases = normalize(service.synonyms.join(" ")), description = normalize(service.description + " " + (service.category ? categories[service.category] : ""));
-    const score = words.reduce((sum, word) => sum + (title.includes(word) ? 8 : aliases.includes(word) ? 6 : description.includes(word) ? 1 : (title + " " + aliases).split(" ").some(token => near(word, token)) ? 3 : 0), 0);
+    const title = normalize(service.title), aliases = normalize([...service.synonyms, ...(serviceSearchDictionary[service.code] ?? [])].join(" "));
+    const stem = (word: string) => word.length > 5 ? word.replace(/(иями|ами|ого|ему|ому|ить|ать|ять|ов|ев|ам|ям|ах|ях|ой|ей|ая|яя|ое|ые|ий|ый|ую|юю|ы|и|а|я|у|ю|е)$/u, "") : word;
+    const tokens = (title + " " + aliases).split(" ");
+    const categoryWords = normalize(service.category ? categories[service.category] : "").split(" ");
+    const score = [...new Set(words)].reduce((sum, word) => {
+      if (["это", "как", "мне", "меня", "хочу", "для", "или", "что", "нужно"].includes(word)) return sum;
+      if (["студент", "вопрос", "услуг", "обращени"].includes(stem(word))) return sum;
+      const weight = ["дом", "деньги", "документы", "учеба"].includes(word) ? 0.2 : 1;
+      return sum + weight * (title.split(" ").includes(word) ? 8 : aliases.split(" ").includes(word) ? 6 : tokens.some(token => stem(token) === stem(word)) ? 5 : tokens.some(token => near(word, token)) ? 3 : categoryWords.some(token => stem(token) === stem(word)) ? 1 : 0);
+    }, 0);
     return { service, score };
   }).filter(item => !words.length || item.score > 0).sort((a, b) => b.score - a.score || a.service.code.localeCompare(b.service.code));
 }

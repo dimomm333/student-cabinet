@@ -1,4 +1,5 @@
 import "server-only";
+import { brsResultSignature, emitBrsChanges, type BrsNotificationState } from "./notifications-sources.ts";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "../generated/prisma/client.ts";
 import { authorizePlan, calculateStudent, fail, freshActor, planInclude, studentInPlan, BrsError, type BrsActor, type BrsDB, type FullPlan } from "./brs-repository.ts";
@@ -20,6 +21,13 @@ export type BrsCommand = { operation: string; requestId: string; planId?: string
   primaryMax?: number; primaryScore?: number | null; scoringMode?: string; scaleVersion?: number; submissionTiming?: string | null;
 };
 const json = (value: unknown) => value == null ? null : JSON.stringify(value);
+async function notificationState(tx: BrsDB, plan: FullPlan, studentId: string, command: BrsCommand): Promise<BrsNotificationState> {
+  const current = await calculateStudent(tx, plan, studentId);
+  const final = await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: plan.id, studentId } } });
+  const result = command.eventId ? current.results.find(r => r.eventId === command.eventId) : command.operation.includes("ATTEMPT") ? current.attempts.find(a => a.id === command.attemptId) ?? current.attempts.at(-1) : null;
+  return { result: brsResultSignature(result), final: final ? JSON.stringify([final.score, final.rating, final.grade, final.needsReview]) : null,
+    admission: plan.control === "EXAM" ? current.calculation.admissionStatus : plan.control === "DISTRIBUTED" ? current.calculation.academic.state : "" };
+}
 function text(value: unknown, max = 1000) { if (typeof value !== "string" || value.length > max) fail("Некорректный текст поля."); return value.trim(); }
 function date(value: unknown): Date | null { if (value === null || value === undefined || value === "") return null; if (typeof value !== "string") fail("Некорректная дата."); return parseCalendarDate(value) ?? fail("Укажите существующую дату."); }
 function integer(value: unknown, min: number, max: number) { if (!Number.isInteger(value) || Number(value) < min || Number(value) > max) fail("Значение вне допустимого диапазона."); return value as number; }
@@ -133,6 +141,9 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
       }
       const retry = await tx.brsAudit.findUnique({ where: { actorId_requestId: { actorId: actor.id, requestId: command.requestId } } });
       if (retry) { if (retry.commandHash !== hash) fail("Ключ запроса уже использован для другой команды.", 409); return { objectId: retry.objectId, planId: retry.planId, message: "Запрос уже выполнен." }; }
+      const notificationStudents = plan?.publishedAt ? command.studentId ? [command.studentId] : ["RELINK", "SYNC", "EXAM_DATE"].includes(command.operation) ? (await tx.studentProfile.findMany({ where: { groupId: plan.groupId, user: { role: "STUDENT" } }, select: { userId: true } })).map(s => s.userId) : [] : [];
+      const notificationBefore = new Map<string, BrsNotificationState>();
+      for (const id of notificationStudents) notificationBefore.set(id, await notificationState(tx, plan!, id, command));
       let objectId = plan?.id ?? "", before: unknown = null, after: unknown = null;
       if (command.operation === "CREATE_PLAN") {
         plan = await tx.brsPlan.findUniqueOrThrow({ where: { id: (await createDraft(tx, actor, command)).id }, include: planInclude }); objectId = plan.id; after = plan;
@@ -354,6 +365,10 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
         await tx.brsPlan.update({ where: { id: plan.id }, data: { revision: { increment: 1 } } });
       }
       await audit(tx, actor, command, objectId, before, after, hash, plan?.id);
+      if (plan && notificationStudents.length) {
+        const updatedPlan = await tx.brsPlan.findUniqueOrThrow({ where: { id: plan.id }, include: planInclude });
+        for (const studentId of notificationStudents) await emitBrsChanges(tx, { key: `${actor.id}:${command.requestId}`, planId: plan.id, studentId, eventId: command.eventId, before: notificationBefore.get(studentId)!, after: await notificationState(tx, updatedPlan, studentId, command) });
+      }
       return { objectId, planId: plan?.id ?? null, message: "Изменения сохранены." };
     }, { timeout: 30000, maxWait: 15000 });
   } catch (error) {

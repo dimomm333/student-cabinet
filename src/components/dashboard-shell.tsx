@@ -8,6 +8,7 @@ import { Brand } from "./brand";
 import { Icon } from "./icon";
 import { LogoutButton } from "./auth-controls";
 import { ProfileLink } from "./profile-link";
+import { NotificationBadge } from "./notifications-provider";
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -44,7 +45,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
                 className={"nav-item" + (active ? " active" : "")}
                 aria-current={active ? "page" : undefined}
               >
-                <Icon name={item.icon} /><span>{item.title}</span>
+                <Icon name={item.icon} /><span>{item.title}</span>{item.slug === "notifications" && <NotificationBadge />}
               </Link>
             );
           })}
@@ -123,6 +124,7 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
               aria-label="Уведомления"
             >
               <Icon name="bell" />
+              <NotificationBadge />
             </Link>
             <ProfileLink name={name} role="STUDENT" />
             <LogoutButton className="icon-button exit-button" compact />

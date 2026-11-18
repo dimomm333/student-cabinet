@@ -7,11 +7,13 @@ import { createServer } from 'node:net';
 import { createClient } from '@libsql/client';
 import { hashPassword } from 'better-auth/crypto';
 import sharp from 'sharp';
+import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
+import { navigationPdf, actionPdf } from './service-pdf-fixtures.mjs';
 import { createPrismaClient } from '../src/lib/prisma-client.ts';
 import { getDatabaseUrl } from '../src/lib/database-url.ts';
 import { fingerprint, integrity } from './database-snapshot.mjs';
 import { serviceCatalog, validateFields, validateDocuments, searchServices, configFor } from '../src/lib/services-catalog.ts';
-import { seedServices, executeServiceCommand, getServiceRequest, listServiceRequests, downloadServiceDocument, getMilitaryRecord } from '../src/lib/services-repository.ts';
+import { seedServices, executeServiceCommand, getServiceRequest, listServiceRequests, downloadServiceDocument, getMilitaryRecord, militaryEligibility } from '../src/lib/services-repository.ts';
 import { localServiceStorage, prepareServiceFile } from '../src/lib/services-storage.ts';
 
 mkdirSync('.local', { recursive: true });
@@ -71,6 +73,9 @@ try {
   assert.equal(searchServices('военкомат')[0].service.code, 'military-change');
   assert(searchServices('справкка').some(x => x.service.category === 'DOCUMENTS'));
   assert(searchServices('потерял пропуск').some(x => x.service.code === 'pass-reissue'));
+  for (const [query, code] of Object.entries({ 'с места учебы': 'study-certificate', 'отпуск на сессию': 'study-call', 'зачетка': 'transcript', 'повышенка': 'merit-scholarship', 'социалка': 'social-scholarship', 'матпомощ': 'material-aid', 'комнаты': 'dorm-compensation', 'поезд': 'travel-compensation', 'академка': 'academic-leave', 'перейти в другую группу': 'group-transfer', 'свободное посещение': 'individual-plan', 'уйти из универа': 'withdrawal', 'новый паспорт': 'personal-change', 'армия': 'military-change', 'студак': 'pass-reissue', 'помогите разобраться': 'deanery-appeal' })) assert(searchServices(query).some(x => x.service.code === code), query);
+  assert(searchServices('дом').every(x => x.score < 3), 'Ambiguous words must not trigger a warning');
+  assert(searchServices('Обычный вопрос студента').filter(x => x.service.code !== 'deanery-appeal').every(x => x.score < 3));
   assert.throws(() => validateFields(configFor('study-call'), { startsOn: '2026-02-30' }, true));
   assert.throws(() => validateDocuments(configFor('pass-reissue'), { photo: 'NEW' }, []));
   pass('Synonyms, local typo search, date validation and conditional new photo');
@@ -138,6 +143,21 @@ try {
   assert.equal(talkDetail.history.at(-1).text, reply.text);
   assert.equal(await db.serviceEvent.count({ where: { requestId: talk.id, type: 'STAFF_REPLY' } }), 1);
   pass('All 49 staff status pairs, plain-text correspondence and deduplicated staff-reply event');
+  const legacy = await command(student, { operation: 'CREATE', code: 'deanery-appeal' });
+  const auditRows = Array.from({ length: 180 }, (_, i) => ({ requestId: legacy.id, actorId: student.id, actorName: student.name, action: i % 3 === 0 ? 'COMMENT' : 'SAVE', text: i % 3 === 0 ? 'Архивное сообщение ' + i : null, snapshotJson: JSON.stringify({ version: i + 2 }), createdAt: new Date(Date.now() + i + 1) }));
+  await db.serviceHistory.createMany({ data: auditRows });
+  const auditBefore = await db.serviceHistory.findMany({ where: { requestId: legacy.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  const visible0 = await getServiceRequest(db, student, legacy.id, 0), visible1 = await getServiceRequest(db, student, legacy.id, 1);
+  assert.equal(visible0.history.length, 50); assert.equal(visible0.historyHasMore, true);
+  assert.equal(visible1.history.length, 11); assert.equal(visible1.historyHasMore, false);
+  assert.equal(new Set([...visible0.history, ...visible1.history].map(h => h.id)).size, 61);
+  assert([...visible0.history, ...visible1.history].every(h => h.action !== 'SAVE'));
+  assert.deepEqual(await db.serviceHistory.findMany({ where: { requestId: legacy.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }), auditBefore);
+  assert.equal((await getServiceRequest(db, student, legacy.id, 2)).history.length, 0);
+  const exactPage = await command(student, { operation: 'CREATE', code: 'deanery-appeal' });
+  await db.serviceHistory.createMany({ data: auditRows.filter(h => h.action !== 'SAVE').slice(0, 49).map(h => ({ ...h, requestId: exactPage.id })) });
+  const exact = await getServiceRequest(db, student, exactPage.id); assert.equal(exact.history.length, 50); assert.equal(exact.historyHasMore, false);
+  pass('Visible history filters SAVE before pagination, preserves legacy audit rows and handles exactly 50 events');
   const protectedRecords = async () => ({
     profiles: await db.studentProfile.findMany({ orderBy: { userId: 'asc' } }),
     users: await db.user.findMany({ orderBy: { id: 'asc' } }),
@@ -180,8 +200,60 @@ try {
   await assert.rejects(() => getMilitaryRecord(db, teacher, student.id), /недоступны/);
   await assert.rejects(() => getMilitaryRecord(db, admin, student.id), /недоступны/);
   pass('Live grant/department revocation, cross-department denial, file and military permissions');
+  assert.equal(await militaryEligibility(db, other.id), 'UNKNOWN');
+  await db.studentProfile.update({ where: { userId: other.id }, data: { gender: 'FEMALE' } });
+  assert.equal(await militaryEligibility(db, other.id), 'UNKNOWN');
+  const historical = await command(other, { operation: 'CREATE', code: 'military-change' });
+  await db.militaryRecord.create({ data: { userId: other.id, departmentId: department.id, registrationStatus: 'NOT_REQUIRED', verifiedAt: new Date() } });
+  assert.equal(await militaryEligibility(db, other.id), 'NOT_REQUIRED');
+  await assert.rejects(() => command(other, { operation: 'CREATE', code: 'military-change' }), /не требуется/);
+  await assert.rejects(() => submit(other, historical), /не требуется/);
+  assert.equal((await getServiceRequest(db, other, historical.id)).id, historical.id);
+  await db.militaryRecord.update({ where: { userId: other.id }, data: { registrationStatus: 'REQUIRED: подтверждённая ВУС' } });
+  assert.equal(await militaryEligibility(db, other.id), 'REQUIRED');
+  await command(other, { operation: 'CREATE', code: 'military-change' });
+  pass('Verified military exemption only, female specialty, unknown status and historical ownership');
+  const pdf = await PDFDocument.create(); pdf.addPage([200, 200]);
+  const pdfBytes = Buffer.from(await pdf.save());
+  const preparedPdf = await prepareServiceFile(pdfBytes, 'scan.pdf', 'application/pdf');
+  const navigation = await navigationPdf();
+  assert((await prepareServiceFile(navigation,'navigation.pdf','application/pdf')).bytes.equals(navigation));
+  for (const [kind,value,variant] of [
+    ['URI','javascript:alert(1)'], ['URI','data:text/html,test'], ['URI','file:///tmp/test'], ['URI','mailto:test@example.test'],
+    ['URI',' javaScript:alert(1)'], ['URI','https://user:password@example.test'], ['URI','https://example.test/%0aevil'],
+    ['Launch'], ['GoToR'], ['JavaScript'], ['SubmitForm'], ['Named'],
+    ['URI','https://example.test','next'], ['GoTo',null,'cycle'], ['URI','https://example.test','open'],
+  ]) await assert.rejects(() => actionPdf(kind,value,variant).then(bytes => prepareServiceFile(bytes,'danger.pdf','application/pdf')), /неподдерживаемое содержимое/);
+  assert.equal((await prepareServiceFile(await actionPdf('GoTo',null,'open'),'internal-open.pdf','application/pdf')).mime,'application/pdf');
+  pass('PDF classification accepts HTTP/HTTPS, outlines, internal destinations, notes and tagged attributes; denies unsafe schemes, scripts, actions, automatic external links and chains');
+  const longName = 'Руководство HONOR & инструкция, (русская версия) ' + 'подробное описание '.repeat(6) + '.pdf';
+  assert.equal((await prepareServiceFile(pdfBytes, longName, 'application/pdf')).name, longName);
+  for (const name of ['../scan.pdf', 'folder\\scan.pdf', 'bad\u0000.pdf', 'bad\u202e.pdf', 'x'.repeat(256) + '.pdf']) await assert.rejects(() => prepareServiceFile(pdfBytes, name, 'application/pdf'));
+  assert.equal(preparedPdf.mime, 'application/pdf'); assert(preparedPdf.bytes.equals(pdfBytes));
+  await assert.rejects(() => prepareServiceFile(pdfBytes, 'scan.png', 'image/png'));
+  await assert.rejects(() => prepareServiceFile(Buffer.from('%PDF-1.7\ninvalid\n%%EOF'), 'broken.pdf', 'application/pdf'), /повреждён/);
+  await assert.rejects(() => prepareServiceFile(Buffer.from('%PDF-1.7'), 'truncated.pdf', 'application/pdf'), /повреждён/);
+  await assert.rejects(() => prepareServiceFile(Buffer.alloc(20 * 1024 * 1024 + 1), 'large.pdf', 'application/pdf'), e => e.status === 413);
+  const largePdf = await PDFDocument.create(), largePage = largePdf.addPage([200, 200]);
+  largePage.node.set(PDFName.of('Contents'), largePdf.context.register(largePdf.context.stream(Buffer.alloc(19 * 1024 * 1024, 32))));
+  const largeBytes = Buffer.from(await largePdf.save({ useObjectStreams: false }));
+  assert(largeBytes.length > 19 * 1024 * 1024 && largeBytes.length < 20 * 1024 * 1024);
+  assert.equal((await prepareServiceFile(largeBytes, 'large.pdf', 'application/pdf')).size, largeBytes.length);
+  const bomb = await PDFDocument.create(), bombPage = bomb.addPage([200, 200]);
+  bombPage.node.set(PDFName.of('Contents'), bomb.context.register(bomb.context.flateStream(Buffer.alloc(17 * 1024 * 1024, 32))));
+  await assert.rejects(async () => prepareServiceFile(Buffer.from(await bomb.save()), 'bomb.pdf', 'application/pdf'), /превышает ограничения/);
+  pdf.catalog.set(PDFName.of('OpenAction'), pdf.context.obj({ S: 'JavaScript', JS: PDFString.of('alert(1)') }));
+  await assert.rejects(async () => prepareServiceFile(Buffer.from(await pdf.save()), 'active.pdf', 'application/pdf'), /неподдерживаемое содержимое/);
+  pass('Original PDF preserved, compressed objects parsed, active/corrupt/spoofed/oversize PDF rejected');
   for (const [data, name, mime] of [[Buffer.from('<script/>'), 'file.png', 'image/png'], [Buffer.from('MZ'), 'file.exe', 'image/png']]) await assert.rejects(() => prepareServiceFile(data, name, mime));
   const png = await sharp({ create: { width: 10, height: 10, channels: 3, background: '#ffffff' } }).png().toBuffer();
+  const photo = await sharp(randomBytes(2000 * 1800 * 3), { raw: { width: 2000, height: 1800, channels: 3 } }).jpeg({ quality: 90 }).toBuffer();
+  assert(photo.length < 3.2 * 1024 * 1024); assert((await sharp(photo).png().toBuffer()).length > 8 * 1024 * 1024);
+  const cleanedPhoto = await prepareServiceFile(Buffer.concat([photo, Buffer.from('<script>trailing</script>')]), 'photo.jpg', 'image/jpeg');
+  assert.equal(cleanedPhoto.mime, 'image/jpeg'); assert.equal(cleanedPhoto.name, 'photo.jpg'); assert(cleanedPhoto.size < 8 * 1024 * 1024);
+  assert(!cleanedPhoto.bytes.includes(Buffer.from('<script>trailing</script>'))); assert.equal((await sharp(cleanedPhoto.bytes).metadata()).format, 'jpeg');
+  const tooManyPixels = await sharp({ create: { width: 5000, height: 5000, channels: 3, background: '#71826a' } }).jpeg().toBuffer();
+  await assert.rejects(() => prepareServiceFile(tooManyPixels, 'pixels.jpg', 'image/jpeg'), e => e.status === 413 && /20 миллионов пикселей/.test(e.message));
   await assert.rejects(() => prepareServiceFile(png, '../scan.png', 'image/png'));
   await assert.rejects(() => prepareServiceFile(png, 'scan.png', 'image/jpeg'));
   await assert.rejects(() => prepareServiceFile(Buffer.alloc(8 * 1024 * 1024 + 1), 'big.png', 'image/png'));

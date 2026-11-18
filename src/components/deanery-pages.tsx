@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ServiceNotifications } from "./services-notifications";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { withDeanery } from "@/lib/deanery";
@@ -15,6 +16,7 @@ function Heading({ title, children }: { title: string; children?: React.ReactNod
 async function HomeContent() {
   const model = await withDeanery(getDeaneryOverview);
   return <><Heading title="Рабочая панель деканата">Учебная работа в назначенных подразделениях.</Heading>
+    <ServiceNotifications compact home="/deanery" />
     <section className="panel profile-panel"><h2>Область доступа</h2>{model.departments.length ? <ul>{model.departments.map(department => <li key={department.id}>{department.faculty} · {department.name}</li>)}</ul> : <p>Подразделения не назначены. Доступ к студентам и группам закрыт. Обратитесь к ответственному за назначения.</p>}</section>
     <div className="workspace-grid">
       <Link href="/deanery/students" className="panel workspace-card"><h2>Студенты</h2><strong className="deanery-count">{model.students}</strong><p>В назначенных подразделениях</p></Link>

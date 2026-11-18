@@ -43,8 +43,11 @@ function Dialog({ title, onClose, children, anchor, compact }: { title: string; 
   }, [anchor]);
   return <dialog ref={ref} className={"brs-dialog" + (compact ? " brs-dialog-compact" : "")} aria-labelledby="brs-dialog-title" onClick={e => { if (e.target === e.currentTarget) { const bounds = e.currentTarget.getBoundingClientRect(); if (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom) onClose(); } }}><div className="brs-dialog-head"><h2 id="brs-dialog-title">{title}</h2><button type="button" onClick={onClose} aria-label="Закрыть окно">×</button></div>{children}</dialog>;
 }
-export function BrsWorkspaceView({ initial, section }: { initial: BrsWorkspace; section: "grades" | "session" | "plans" | "admissions" }) {
-  const [model, setModel] = useState(initial), [modal, setModal] = useState<Modal | null>(null), [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
+export function BrsWorkspaceView({ initial, section, initialEventId }: { initial: BrsWorkspace; section: "grades" | "session" | "plans" | "admissions"; initialEventId?: string }) {
+  const [model, setModel] = useState(initial), [modal, setModal] = useState<Modal | null>(() => {
+    const targetModule = initial.selected?.modules.find(m => m.events.some(e => e.id === initialEventId)), event = targetModule?.events.find(e => e.id === initialEventId);
+    return initial.role === "STUDENT" && event && targetModule ? { type: "detail", title: workTitle(event), eventId: event.id, moduleId: targetModule.id, studentId: initial.actorId, command: { planId: initial.selected!.id } } : null;
+  }), [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
   const router = useRouter(), pathname = usePathname();
   const highlightRoot = useBrsTableHighlight(!!modal);
   const [lastInitial, setLastInitial] = useState(initial);
@@ -80,7 +83,7 @@ export function BrsWorkspaceView({ initial, section }: { initial: BrsWorkspace; 
     try {
       const response = await fetch("/api/brs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ planId: plan?.id, revision: plan?.revision, requestId: crypto.randomUUID(), ...command }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error);
-      await refresh(body.planId ?? plan?.id ?? ""); setModal(null); setMessage(body.message); router.refresh();
+      await refresh(body.planId ?? plan?.id ?? ""); setModal(null); setMessage(body.message); window.dispatchEvent(new Event("notifications-updated")); router.refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "Не удалось сохранить изменения."); }
     finally { setBusy(false); }
   }

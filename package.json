@@ -45,7 +45,10 @@
     "db:services:seed": "node --env-file-if-exists=.env --conditions=react-server scripts/seed-services.mjs",
     "services:configure": "node --env-file-if-exists=.env --conditions=react-server scripts/configure-services.mjs",
     "test:services": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-services.mjs",
-    "test:services:ui": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-services-ui.mjs"
+    "test:services:ui": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-services-ui.mjs",
+    "db:notifications": "node --env-file-if-exists=.env scripts/prepare-notifications.mjs --apply",
+    "notifications:deliver": "node --env-file-if-exists=.env --conditions=react-server scripts/deliver-notifications.mjs",
+    "test:notifications": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-notifications.mjs"
   },
   "dependencies": {
     "@prisma/adapter-libsql": "7.10.1",
@@ -53,6 +56,8 @@
     "better-auth": "1.7.22",
     "dotenv": "17.2.3",
     "next": "16.4.6",
+    "nodemailer": "10.6.0",
+    "pdf-lib": "1.17.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1",

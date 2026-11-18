@@ -1,9 +1,10 @@
 import { connection } from "next/server";
+import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { ServiceError, searchServices, configFor } from "@/lib/services-catalog";
-import { executeServiceCommand, getServiceRequest, listServiceRequests, downloadServiceDocument, liveActor, getMilitaryRecord, visibleRequest, type ServiceActor, type ServiceCommand } from "@/lib/services-repository";
-import { localServiceStorage, prepareServiceFile, MAX_SERVICE_FILE } from "@/lib/services-storage";
+import { executeServiceCommand, getServiceRequest, listServiceRequests, downloadServiceDocument, liveActor, getMilitaryRecord, visibleRequest, militaryEligibility, type ServiceActor, type ServiceCommand } from "@/lib/services-repository";
+import { localServiceStorage, prepareServiceFile, MAX_SERVICE_FILE, MAX_SERVICE_PDF } from "@/lib/services-storage";
 
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff" };
 const response = (data: unknown, status = 200) => Response.json(data, { status, headers });
@@ -14,11 +15,16 @@ async function actor(request: Request): Promise<ServiceActor> {
   await liveActor(prisma, actor);
   return actor;
 }
-function errorResponse(error: unknown) {
-  if (error instanceof ServiceError) return response({ error: error.message }, error.status);
+function errorResponse(error: unknown, stage = "REQUEST") {
+  const status = error instanceof ServiceError ? error.status : 503;
+  const rawCode = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  const code = error instanceof ServiceError ? `HTTP_${status}` : ["ENOSPC", "EACCES", "EPERM", "ETIMEDOUT", "ECONNRESET", "SQLITE_BUSY"].includes(rawCode) ? rawCode : "INTERNAL";
+  const diagnostic = { stage, status, code, trace: randomUUID() };
+  if (process.env.SERVICES_UPLOAD_DIAGNOSTICS === "1") console.info("services.safe_diagnostic", JSON.stringify(diagnostic));
+  if (error instanceof ServiceError) return response({ error: error.message, diagnostic }, status);
   // Never print errors containing query parameters, fields, file paths or records.
   console.error("services.operation_failed");
-  return response({ error: "Операция не выполнена. Повторите запрос с тем же requestId." }, 503);
+  return response({ error: "Сервис временно недоступен. Повторите попытку позже.", diagnostic }, status);
 }
 function parameters(request: Request, allowed: string[]) {
   const params = new URL(request.url).searchParams;
@@ -37,10 +43,11 @@ export async function GET(request: Request) {
       const routes = await prisma.serviceRoute.findMany({ where: { active: true, source: { groups: { some: { students: { some: { userId: user.id } } } } } }, select: { serviceCode: true, departmentId: true } });
       const definitions = await prisma.serviceDefinition.findMany({ select: { code: true, version: true, enabled: true } });
       const currentUser = await liveActor(prisma, user);
+      const eligibility = currentUser.role === "STUDENT" ? await militaryEligibility(prisma, user.id) : "UNKNOWN";
       return response({ items: searchServices(p.get("q") ?? "").slice(0, 50).map(({ service, score }) => {
         const enabled = definitions.some(d => d.code === service.code && d.version === service.version && d.enabled);
         const processingDepartmentId = routes.find(r => r.serviceCode === service.code)?.departmentId ?? null;
-        return { ...service, score, enabled, available: currentUser.role === "STUDENT" && enabled && Boolean(processingDepartmentId), processingDepartmentId };
+        return { ...service, score, enabled, eligibility: service.code === "military-change" ? eligibility : undefined, available: currentUser.role === "STUDENT" && enabled && Boolean(processingDepartmentId) && (service.code !== "military-change" || eligibility !== "NOT_REQUIRED"), processingDepartmentId };
       }), generalAppealAllowed: true, generalAppealCode: "deanery-appeal" });
     }
     if (view === "request") return response(await getServiceRequest(prisma, user, id, page));
@@ -51,12 +58,17 @@ export async function GET(request: Request) {
       return response({ items: events.map(event => ({ ...event, href: `/dashboard/services?requestId=${encodeURIComponent(event.requestId)}` })), page, pageSize: 50, uiDelivery: "connected" });
     }
     if (view === "military") return response(await getMilitaryRecord(prisma, user, p.get("studentId") ?? user.id));
+    if (view === "militaryProfile") {
+      if ((await liveActor(prisma, user)).role !== "STUDENT") throw new ServiceError("Доступ запрещён.", 403);
+      const record = await getMilitaryRecord(prisma, user, user.id);
+      return response({ record, eligibility: await militaryEligibility(prisma, user.id) });
+    }
     if (view === "file") {
       const doc = await downloadServiceDocument(prisma, user, id, localServiceStorage());
-      return new Response(new Uint8Array(doc.bytes), { headers: { ...headers, "Content-Type": doc.mime, "Content-Disposition": `attachment; filename="document.png"; filename*=UTF-8''${encodeURIComponent(doc.name)}`, "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Length": String(doc.bytes.length) } });
+      return new Response(new Uint8Array(doc.bytes), { headers: { ...headers, "Content-Type": doc.mime, "Content-Disposition": `attachment; filename="document.${doc.mime === "application/pdf" ? "pdf" : doc.mime === "image/jpeg" ? "jpg" : "png"}"; filename*=UTF-8''${encodeURIComponent(doc.name)}`, "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Length": String(doc.bytes.length) } });
     }
     throw new ServiceError("Неизвестная операция чтения.");
-  } catch (error) { return errorResponse(error); }
+  } catch (error) { return errorResponse(error, "READ"); }
 }
 async function readBytes(request: Request, limit: number) {
   if (Number(request.headers.get("content-length") ?? 0) > limit) throw new ServiceError("Запрос слишком большой.", 413);
@@ -72,6 +84,7 @@ async function readBytes(request: Request, limit: number) {
 const commandFields = new Set("operation requestId id version code fields confirmed confirmationHash status text clarificationFields clarificationSlots documentId slot kind".split(" "));
 export async function POST(request: Request) {
   await connection();
+  let stage = "AUTHORIZE";
   try {
     if (request.headers.get("origin") !== new URL(process.env.BETTER_AUTH_URL!).origin || request.headers.get("sec-fetch-site") === "cross-site") throw new ServiceError("Источник запроса не разрешён.", 403);
     const initialActor = await actor(request);
@@ -79,15 +92,25 @@ export async function POST(request: Request) {
     if (p.get("upload") === "1") {
       const id = p.get("id") ?? "";
       await visibleRequest(prisma, initialActor, id, true);
-      const bytes = await readBytes(request, MAX_SERVICE_FILE);
+      stage = "RECEIVE";
+      const isPdf = request.headers.get("content-type") === "application/pdf";
+      let bytes: Buffer;
+      try { bytes = await readBytes(request, isPdf ? MAX_SERVICE_PDF : MAX_SERVICE_FILE); }
+      catch (error) {
+        if (error instanceof ServiceError && error.status === 413) throw new ServiceError(`${isPdf ? "PDF" : request.headers.get("content-type") === "image/png" ? "PNG" : "JPG/JPEG"} слишком большой. Допустимый размер — ${isPdf ? 20 : 8} МиБ. Выберите другой файл.`, 413);
+        throw error;
+      }
+      stage = "VALIDATE";
       let filename: string;
       try { filename = decodeURIComponent(request.headers.get("x-file-name") ?? ""); } catch { throw new ServiceError("Некорректное имя файла."); }
       const file = await prepareServiceFile(bytes, filename, request.headers.get("content-type") ?? "");
       const user = await actor(request), storage = localServiceStorage();
+      stage = "STORE";
       await storage.put(file.key, file.bytes);
       try {
+        stage = "COMMIT";
         const result = await executeServiceCommand(prisma, user, { operation: "UPLOAD", id, version: Number(p.get("version")), requestId: p.get("requestId") ?? "", slot: p.get("slot") ?? "", kind: p.get("kind") ?? "" }, { key: file.key, name: file.name, mime: file.mime, size: file.size, sha256: file.sha256 });
-        if (result.replayed) await storage.remove(file.key);
+        if (result.replayed) { stage = "REPLAY_CLEANUP"; await storage.remove(file.key); }
         return response(result);
       } catch (error) {
         // A receipt/DB commit may have succeeded before a connection failed.
@@ -103,6 +126,7 @@ export async function POST(request: Request) {
     if (!command || typeof command !== "object" || Array.isArray(command) || Object.keys(command).some(key => !commandFields.has(key))) throw new ServiceError("Некорректные поля команды.");
     for (const key of ["operation", "requestId", "id", "code", "status", "text", "confirmationHash", "documentId", "slot", "kind"] as const) if (command[key] !== undefined && (typeof command[key] !== "string" || command[key]!.length > 4000)) throw new ServiceError("Некорректный тип поля.");
     if (command.code) configFor(command.code);
+    stage = "COMMAND";
     return response(await executeServiceCommand(prisma, await actor(request), command));
-  } catch (error) { return errorResponse(error); }
+  } catch (error) { return errorResponse(error, stage); }
 }

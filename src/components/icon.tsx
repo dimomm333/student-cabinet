@@ -23,6 +23,7 @@ const paths = {
   chevron: "m9 5 7 7-7 7",
   menu: "M4 6h16M4 12h16M4 18h16",
   close: "m6 6 12 12M6 18 18 6",
+  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7",
   logout: "M10 4H4v16h6m5-13 5 5-5 5M9 12h11",
   help: "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9 9a3 3 0 0 1 6 0c0 2-3 2-3 5m0 3h.01",
   cap: "m2 9 10-6 10 6-10 6zM6 12v6c4 3 8 3 12 0v-6m4-3v9",
