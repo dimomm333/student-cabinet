@@ -16,6 +16,7 @@ import { seedServices } from '../src/lib/services-repository.ts';
 import { emitNotification } from '../src/lib/notifications-repository.ts';
 import { serviceCatalog } from '../src/lib/services-catalog.ts';
 import { provisionTestDatabase } from './test-fixtures.mjs';
+import { currentAcademicDate, isoDate, mondayOf } from '../src/lib/schedule-calendar.ts';
 import { fingerprint } from './database-snapshot.mjs';
 
 const development = process.argv.includes('--development');
@@ -25,7 +26,8 @@ const source = createClient({ url: getDatabaseUrl() }), before = await fingerpri
 process.env.DATABASE_URL = provisionTestDatabase(resolve(root, 'test.db')).DATABASE_URL;
 const db = createPrismaClient(), password = randomBytes(24).toString('base64url');
 let browser, child, logs = '';
-const results = [], diagnostics = [], pages = [], contrastIssues = [];
+const results = [], diagnostics = [], pages = [], contrastIssues = [], semanticSamples = [];
+const semanticCoverage = new Set();
 const warning = /hydration|Next\.js encountered|Blocking Route|Instant validation|uncached data during|unstable value/i;
 const pass = name => { results.push(name); console.info('PASS: ' + name); };
 const watch = page => {
@@ -38,6 +40,60 @@ async function settle(page) {
   await page.waitForLoadState('networkidle');
   const overlay = (await page.locator('nextjs-portal').allTextContents()).join(' ');
   if (warning.test(overlay)) diagnostics.push(overlay);
+}
+// These are design contracts, independent of token names or WCAG contrast.
+// Assert hue on real rendered elements, including borders and native controls.
+const colorContracts = [
+  ['avatar', '.avatar', 'backgroundColor', 'green'],
+  ['avatar-text', '.avatar', 'color', 'green'],
+  ['schedule-marker', '.public-lesson-body', 'borderLeftColor', 'green'],
+  ['preview-green', '.lesson-line.green', 'backgroundColor', 'green'],
+  ['preview-blue', '.lesson-line.blue', 'backgroundColor', 'blue'],
+  ['preview-amber', '.lesson-line.amber', 'backgroundColor', 'amber'],
+  ['today', '.schedule-day-today', 'borderTopColor', 'green'],
+  ['today-card', '.schedule-today', 'borderTopColor', 'green'],
+  ['selected-date', '.schedule-days a[aria-current], .schedule-calendar button[aria-pressed=true]', 'backgroundColor', 'green'],
+  ['active-menu', '.nav-item.active', 'backgroundColor', 'green'],
+  ['selected-folder', '.materials-tree button.active', 'backgroundColor', 'green'],
+  ['checkbox', '.notification-settings input[type=checkbox], .materials-workspace input[type=checkbox], .services-confirm input', 'accentColor', 'green'],
+  ['primary-button', '.button-primary', 'backgroundColor', 'green'],
+  ['banner', '.student-banner, .portal-action-cabinet', 'backgroundColor', 'green'],
+  ['brs-marker', '.brs-workspace .brs-panel > h2, .brs-student-section-heading, .brs-student-progress details > summary', 'borderLeftColor', 'green'],
+  ['table-heading', '.brs-table thead th', 'backgroundColor', 'green'],
+  ['notification-marker', '.notification-list .notification-unread', 'borderLeftColor', 'green'],
+  ['schedule-warning', '.schedule-changed:not(.schedule-cancelled)', 'borderLeftColor', 'amber'],
+  ['schedule-cancelled', '.schedule-cancelled', 'borderLeftColor', 'red'],
+  ['success', '.status-COMPLETED, .services-success, .brs-academic-complete', 'color', 'green'],
+  ['warning', '.status-CLARIFICATION_REQUIRED, .services-notice', 'color', 'amber'],
+  ['danger', '.status-REJECTED, .services-error, .brs-academic-failed', 'color', 'red'],
+  ['delete-action', '.services-delete-draft', 'color', 'red'],
+];
+async function checkSemanticColors(page, theme, label) {
+  const samples = await page.evaluate(contracts => {
+    const samples = [];
+    for (const [name, selector, property, family] of contracts) {
+      for (const element of document.querySelectorAll(selector)) {
+        const style = getComputedStyle(element);
+        if (!element.getBoundingClientRect().width || !element.getBoundingClientRect().height || style.visibility === 'hidden') continue;
+        const value = style[property];
+        const rgb = (value.match(/[\d.]+/g) ?? []).map(Number);
+        const [r,g,b] = rgb;
+        const valid = family === 'green' ? g > r + 2 && g > b + 2
+          : family === 'blue' ? b > r + 8 && g > r
+          : family === 'amber' ? r > g + 8 && g > b + 15
+          : r > g + 15 && r > b + 15;
+        samples.push({name, property, family, value, valid});
+      }
+    }
+    const today = document.querySelector('.schedule-day-today[aria-current]');
+    if (today && getComputedStyle(today).boxShadow !== 'none') samples.push({name:'today-shadow',valid:false});
+    return samples;
+  }, colorContracts);
+  semanticSamples.push({label,theme,samples});
+  for (const sample of samples) {
+    semanticCoverage.add(sample.name + ':' + theme);
+    assert(sample.valid, `Lost semantic hue: ${label} ${theme} ${JSON.stringify(sample)}`);
+  }
 }
 async function check(page, theme, label, capture = true) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
@@ -79,7 +135,39 @@ async function check(page, theme, label, capture = true) {
   // Playwright's default caret hiding writes inline styles into every input.
   // In streamed dev pages this can race a nested component's hydration.
   if (capture) await page.screenshot({ path: resolve(root, label + '-' + theme + '.png'), fullPage: true, caret: 'initial' });
+  await checkSemanticColors(page, theme, label);
   pages.push({ label, theme, url: new URL(page.url()).pathname });
+}
+async function chooseTheme(page, value) {
+  await page.locator('.theme-toggle').click();
+  await page.getByRole('menuitemradio', { name: { system:'Как в системе', light:'Светлая', dark:'Тёмная' }[value], exact:true }).click();
+}
+async function systemThemeIcons(page) {
+  for (const width of [346,360,1366]) {
+    await page.setViewportSize({width,height:900});
+    for (const preference of ['system','light','dark']) {
+      await chooseTheme(page,preference);
+      const saved = await page.evaluate(() => localStorage.getItem('lks-theme'));
+      await page.locator('.theme-toggle').click();
+      for (const system of ['light','dark']) {
+        await page.emulateMedia({colorScheme:system});
+        await expect(page.locator('html')).toHaveAttribute('data-theme',preference==='system'?system:preference);
+        assert.equal(await page.evaluate(() => localStorage.getItem('lks-theme')),saved,'OS icon changed the stored preference');
+        const icons = page.locator('.system-theme-icon:visible');
+        assert.equal(await icons.count(),preference==='system'?2:1);
+        for (const icon of await icons.all()) {
+          await expect(icon.locator('.system-theme-'+(system==='dark'?'moon':'sun'))).toBeVisible();
+          await expect(icon.locator('.system-theme-'+(system==='dark'?'sun':'moon'))).toBeHidden();
+          const outer = await icon.boundingBox();
+          const inner = await icon.locator('.system-theme-'+(system==='dark'?'moon':'sun')).boundingBox();
+          assert(inner.width>=5&&inner.height>=5&&inner.x>outer.x+outer.width*3/24&&inner.y>outer.y+outer.height*4/24&&inner.x+inner.width<outer.x+outer.width*21/24&&inner.y+inner.height<outer.y+outer.height*17/24,'System symbol escaped the monitor screen');
+        }
+        await page.screenshot({path:resolve(root,`system-icon-${preference}-${width}-${system}.png`),fullPage:true,caret:'initial'});
+      }
+      await page.keyboard.press('Escape');
+    }
+  }
+  pass('System monitor icon: OS light/dark updates independently of all three preferences at 346/360/1366px; storage unchanged');
 }
 async function matrix(page, label, prepare, widths = [1366, 768, 360, 346]) {
   for (const width of widths) {
@@ -91,9 +179,9 @@ async function matrix(page, label, prepare, widths = [1366, 768, 360, 346]) {
           // A modal makes the header inert. Model the supported cross-tab
           // storage event while keeping the real modal and its focus trap open.
           await page.evaluate(theme => { localStorage.setItem('lks-theme',theme); dispatchEvent(new StorageEvent('storage',{key:'lks-theme',newValue:theme})); },theme);
-        } else await page.locator('.theme-toggle').click();
+        } else await chooseTheme(page, theme);
       }
-      await check(page, theme, label + '-' + width, theme === 'dark' || label === 'public-home' || label === 'login');
+      await check(page, theme, label + '-' + width, true);
     }
   }
 }
@@ -105,45 +193,71 @@ async function preferences(base) {
   assert.equal(await page.evaluate(() => localStorage.getItem('lks-theme')), null);
   await page.emulateMedia({ colorScheme: 'light' }); await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.emulateMedia({ colorScheme: 'dark' }); await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  const origin = await page.evaluate(() => performance.timeOrigin);
   await page.locator('.theme-toggle').focus(); await page.keyboard.press('Enter');
-  await expect(page.locator('.theme-toggle')).toHaveAccessibleName('Тёмная');
+  await expect(page.getByRole('menuitemradio', { name:'Как в системе', exact:true })).toBeChecked();
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+  await expect(page.locator('.theme-toggle')).toHaveAccessibleName('Оформление: Светлая');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.emulateMedia({ colorScheme: 'light' }); await page.emulateMedia({ colorScheme: 'dark' });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await page.keyboard.press('Space'); await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.reload(); await settle(page); await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+  const origin = await page.evaluate(() => performance.timeOrigin);
+  await page.locator('.theme-toggle').focus();
+  await page.keyboard.press('Space'); await page.keyboard.press('End'); await page.keyboard.press('Space');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   assert.equal(await page.evaluate(() => performance.timeOrigin), origin);
   assert.equal(await page.evaluate(() => localStorage.getItem('lks-theme')), 'dark');
-  await page.reload(); await settle(page); await expect(page.locator('.theme-toggle')).toHaveAccessibleName('Светлая');
+  await page.reload(); await settle(page); await expect(page.locator('.theme-toggle')).toHaveAccessibleName('Оформление: Тёмная');
   // Delay React, and observe the first rendered frame, not only final hydration.
-  const slow = await context.newPage(); watch(slow);
-  await slow.emulateMedia({ colorScheme: 'light' });
-  await slow.route('**/_next/**/*.js*', route => new Promise(done => setTimeout(done, 1500)).then(() => route.continue()));
-  await slow.addInitScript(() => {
-    requestAnimationFrame(() => { window.__firstTheme = { theme: document.documentElement.dataset.theme, background: getComputedStyle(document.documentElement).backgroundColor }; });
-  });
-  await slow.goto(base + '/login', { waitUntil: 'domcontentloaded' });
-  await slow.waitForFunction(() => window.__firstTheme);
-  assert.deepEqual(await slow.evaluate(() => window.__firstTheme), { theme: 'dark', background: 'rgb(0, 0, 0)' });
-  await slow.close();
+  for (const [saved,system,expected] of [['dark','light','dark'],['light','dark','light'],[null,'dark','dark'],[null,'light','light']]) {
+    const firstFrameContext = await browser.newContext({colorScheme:system});
+    const slow = await firstFrameContext.newPage(); watch(slow);
+    await slow.route('**/_next/**/*.js*', route => new Promise(done => setTimeout(done, 1500)).then(() => route.continue()));
+    await slow.addInitScript(saved => {
+      if (saved) localStorage.setItem('lks-theme',saved);
+      requestAnimationFrame(() => { window.__firstTheme = { theme: document.documentElement.dataset.theme, background: getComputedStyle(document.documentElement).backgroundColor }; });
+    },saved);
+    await slow.goto(base + '/login', { waitUntil: 'domcontentloaded' });
+    await slow.waitForFunction(() => window.__firstTheme);
+    assert.deepEqual(await slow.evaluate(() => window.__firstTheme), { theme:expected, background:expected==='dark'?'rgb(0, 0, 0)':'rgb(247, 248, 245)' });
+    await settle(slow); await expect(slow.locator('html')).toHaveAttribute('data-theme',expected);
+    await firstFrameContext.close();
+  }
   const second = await context.newPage(); watch(second); await second.goto(base + '/login'); await settle(second);
-  await page.locator('.theme-toggle').click(); await expect(second.locator('html')).toHaveAttribute('data-theme', 'light');
+  await chooseTheme(page, 'light'); await expect(second.locator('html')).toHaveAttribute('data-theme', 'light');
+  await chooseTheme(page, 'system');
+  assert.equal(await page.evaluate(() => localStorage.getItem('lks-theme')), null);
+  await expect(second.locator('.theme-toggle')).toHaveAccessibleName('Оформление: Как в системе');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.emulateMedia({ colorScheme: 'light' }); await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.emulateMedia({ colorScheme: 'dark' }); await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.reload(); await settle(page); await expect(page.locator('.theme-toggle')).toHaveAccessibleName('Оформление: Как в системе');
+  for (const width of [1366,360]) for (const theme of ['light','dark']) {
+    await page.setViewportSize({width,height:900}); await chooseTheme(page,theme);
+    await page.locator('.theme-toggle').click(); await check(page,theme,'theme-menu-'+width);
+    await page.keyboard.press('Escape'); await expect(page.locator('.theme-toggle')).toBeFocused();
+    await page.locator('.theme-toggle').click(); await page.keyboard.press('Tab');
+    await expect(page.getByRole('menu',{name:'Оформление',exact:true})).toHaveCount(0);
+    await page.locator('.theme-toggle').click(); await page.locator('h1').click();
+    await expect(page.getByRole('menu',{name:'Оформление',exact:true})).toHaveCount(0);
+  }
   await page.evaluate(() => localStorage.removeItem('lks-theme')); await page.reload(); await settle(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await systemThemeIcons(page);
   await matrix(page, 'public-home');
   await page.goto(base + '/login'); await settle(page); await matrix(page, 'login');
   await page.getByLabel('Университетский email').fill('invalid@example.test');
   await page.getByLabel('Пароль').fill('invalid-password'); await page.getByRole('button', { name: 'Войти в кабинет', exact: true }).click();
   await expect(page.locator('.auth-error')).toBeVisible();
-  if (await page.locator('html').getAttribute('data-theme') !== 'dark') await page.locator('.theme-toggle').click();
-  await check(page, 'dark', 'login-error-346');
+  if (await page.locator('html').getAttribute('data-theme') !== 'dark') await chooseTheme(page, 'dark');
+  await matrix(page, 'login-error', undefined, [1366,360]);
   await page.goto(base + '/schedule'); await settle(page); await matrix(page, 'public-schedule');
   await context.close();
   const blocked = await browser.newContext({ colorScheme: 'dark' }); const privatePage = await blocked.newPage(); watch(privatePage);
   await privatePage.addInitScript(() => { Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('Storage disabled', 'SecurityError'); } }); });
   await privatePage.goto(base + '/login'); await settle(privatePage); await expect(privatePage.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await privatePage.locator('.theme-toggle').click(); await privatePage.emulateMedia({ colorScheme: 'light' }); await privatePage.emulateMedia({ colorScheme: 'dark' });
-  await expect(privatePage.locator('html')).toHaveAttribute('data-theme', 'light'); await blocked.close();
+  await chooseTheme(privatePage, 'light'); await privatePage.emulateMedia({ colorScheme: 'light' }); await privatePage.emulateMedia({ colorScheme: 'dark' });
+  await expect(privatePage.locator('html')).toHaveAttribute('data-theme', 'light'); await chooseTheme(privatePage,'system'); await expect(privatePage.locator('html')).toHaveAttribute('data-theme','dark'); await blocked.close();
   pass('System tracking, manual override, Enter/Space, reload, first painted frame with delayed React, cross-tab sync, public pages and unavailable storage');
 }
 
@@ -158,6 +272,16 @@ try {
   for (const config of serviceCatalog) await db.serviceRoute.create({ data: { serviceCode: config.code, sourceDepartmentId: departmentId, departmentId } });
   const config = serviceCatalog.find(s => s.documents.length);
   const request = await db.serviceRequest.create({ data: { ownerId: student.id, serviceCode: config.code, schemaVersion: config.version, departmentId, category: config.category, status: 'IN_REVIEW', submittedAt: new Date(), history: { create: { actorId: student.id, actorName: student.name, action: 'SUBMITTED' } } } });
+  for (const status of ['COMPLETED','CLARIFICATION_REQUIRED','REJECTED']) {
+    await db.serviceRequest.create({data:{ownerId:student.id,serviceCode:config.code,schemaVersion:config.version,departmentId,category:config.category,status,submittedAt:new Date()}});
+  }
+  // Real rendered warning/cancellation states, seeded only in the isolated DB.
+  const scheduleEntry = await db.scheduleEntry.findFirstOrThrow({where:{isPublished:true,lesson:{groups:{some:{groupId:student.studentProfile.groupId}}}},include:{term:true}});
+  const changeDate = scheduleEntry.term.startsOn;
+  for (const isCancelled of [false,true]) await db.scheduleException.create({data:{
+    sourceDate:changeDate,date:changeDate,lessonId:scheduleEntry.lessonId,termId:scheduleEntry.termId,
+    roomId:scheduleEntry.roomId,startMinute:isCancelled?900:780,endMinute:isCancelled?990:870,isPublished:true,isCancelled,
+  }});
   const assignment = await db.teachingAssignment.findFirstOrThrow({ where: { isActive: true }, include: { teacher: true } });
   await db.learningMaterial.create({ data: { authorId: assignment.teacherId, termId: assignment.termId, disciplineId: assignment.disciplineId, title: 'Материал для проверки оформления', searchTitle: 'материал для проверки оформления', description: 'Документы и ссылки доступны в светлой и тёмной теме.', url: 'https://example.test/material', category: 'LECTURES', status: 'PUBLISHED', publishedAt: new Date(), targets: { create: { groupId: assignment.groupId } } } });
   for (const user of await db.user.findMany({ where: { email: { in: demoAccounts.map(a => a.email) } } })) {
@@ -198,6 +322,15 @@ try {
       await page.locator('.material-card summary').first().click(); await matrix(page,actor.role.toLowerCase()+'-material-details');
       if (actor.role==='TEACHER') { await page.getByRole('button',{name:'Добавить материалы',exact:true}).click(); await matrix(page,'teacher-material-upload'); }
       await page.goto(base+home+'/schedule'); await settle(page);
+      if (actor.role==='STUDENT') {
+        await page.goto(base+home+'/schedule?week='+isoDate(mondayOf(currentAcademicDate()))); await settle(page);
+        await page.locator('.schedule-day-today').click(); await settle(page);
+        await matrix(page,'student-today-selected',undefined,[1366,360]);
+        await page.goto(base+home+'/schedule?week='+isoDate(mondayOf(changeDate))); await settle(page);
+        await expect(page.locator('.schedule-cancelled')).toBeVisible();
+        await matrix(page,'student-schedule-changes',undefined,[1366,360]);
+        await page.goto(base+home+'/schedule'); await settle(page);
+      }
       await matrix(page,actor.role.toLowerCase()+'-calendar',async()=>{
         if (await page.locator('.schedule-calendar').count()) await page.locator('.schedule-date-input input').press('Escape');
         await page.getByRole('button',{name:'Открыть календарь',exact:true}).click(); await expect(page.locator('.schedule-calendar')).toBeVisible();
@@ -211,6 +344,9 @@ try {
       await page.getByRole('button',{name:'Добавить регулярную пару',exact:true}).click(); await expect(page.locator('.editor-dialog')).toBeVisible(); await matrix(page,'deanery-editor-dialog'); await page.keyboard.press('Escape');
     }
     if (actor.role==='STUDENT') {
+      await page.goto(base+'/dashboard/services?tab=requests'); await settle(page);
+      await expect(page.locator('.status-COMPLETED')).toBeVisible();
+      await matrix(page,'student-service-statuses',undefined,[1366,360]);
       await page.goto(base+'/dashboard/services?requestId='+request.id); await settle(page); await expect(page.locator('.services-detail')).toHaveAttribute('aria-busy','false'); await matrix(page,'student-service-history');
       await page.goto(base+'/dashboard/services?service='+config.code); await settle(page);
       await page.getByRole('button',{name:'Создать черновик',exact:true}).click(); await expect(page.locator('.services-detail')).toHaveAttribute('aria-busy','false'); await matrix(page,'student-service-documents');
@@ -229,20 +365,23 @@ try {
     }
     // Manual choice survives the actual sign-out redirect and the next login.
     await page.setViewportSize({ width:1366,height:900 }); await page.goto(base+home); await settle(page);
-    if(await page.locator('html').getAttribute('data-theme')!=='dark')await page.locator('.theme-toggle').click();
+    if(await page.locator('html').getAttribute('data-theme')!=='dark')await chooseTheme(page, 'dark');
     await page.getByRole('button',{name:'Выйти из аккаунта',exact:true}).filter({visible:true}).click(); await page.waitForURL(base+'/login'); await settle(page); await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
     assert.equal((await context.request.post(base+'/api/auth/sign-in/email',{headers:{Origin:base},data:{email:actor.email,password}})).status(),200);
     await page.goto(base+home); await settle(page); await expect(page.locator('html')).toHaveAttribute('data-theme','dark'); await context.close();
     pass(actor.role+': all menu sections, four widths, both themes, bell geometry, contrast, logout/login persistence');
   }
   assert.deepEqual(contrastIssues, [], 'Dark text contrast below WCAG AA; see results.json');
+  for (const name of ['avatar','avatar-text','schedule-marker','today','today-card','selected-date','active-menu','selected-folder','checkbox','primary-button','banner','brs-marker','table-heading','notification-marker','delete-action','schedule-warning','schedule-cancelled','success','warning','danger']) {
+    for (const theme of ['light','dark']) assert(semanticCoverage.has(name+':'+theme),'Missing semantic coverage: '+name+':'+theme);
+  }
   assert.deepEqual(diagnostics, [], 'Browser errors or Next.js diagnostics');
   assert(!warning.test(logs),'Next.js diagnostics in server log');
   assert.equal(await fingerprint(source), before, 'Source database changed');
   pass('No bright surfaces, overflow, media filters, hydration/Blocking Route/Instant errors; source database unchanged');
 } finally {
   await browser?.close(); child?.kill(); await db.$disconnect(); source.close();
-  writeFileSync(resolve(root,'results.json'),JSON.stringify({ mode:development?'development':'production',results,pages,contrastIssues,diagnostics },null,2));
+  writeFileSync(resolve(root,'results.json'),JSON.stringify({ mode:development?'development':'production',results,pages,contrastIssues,diagnostics,semanticSamples,semanticCoverage:[...semanticCoverage] },null,2));
   writeFileSync(resolve(root,'server.log'),logs.replaceAll(password,'[REDACTED]'),{mode:0o600});
   console.info('Theme report: '+root.replaceAll('\\','/')+'/results.json');
 }

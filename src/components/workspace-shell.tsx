@@ -12,6 +12,7 @@ import { ProfileLink } from "./profile-link";
 import { NotificationBell } from "./notification-bell";
 import { NotificationBadge } from "./notifications-provider";
 import { ThemeToggle } from "./theme-toggle";
+import { AutoHideHeader } from "./auto-hide-header";
 
 export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; name: string; children: ReactNode }) {
   const pathname = usePathname();
@@ -44,13 +45,13 @@ export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; 
       </div>
     </dialog>
     <div className="dashboard-workspace">
-      <header className="dashboard-header">
+      <AutoHideHeader>
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" className="icon-button mobile-menu-trigger" aria-label="Открыть меню" aria-haspopup="dialog" onClick={() => menu.current?.showModal()}><Icon name="menu" /></button>
           <div className="breadcrumb"><span>{workspace.title}</span><Icon name="chevron" size={14} /><strong>{current?.title ?? "Главная"}</strong></div>
         </div>
         <div className="header-actions"><ThemeToggle /><NotificationBell href={`${home}/notifications`} /><ProfileLink name={name} role={role} /><LogoutButton className="icon-button" compact /></div>
-      </header>
+      </AutoHideHeader>
       <main id="workspace-main" className="dashboard-main">{children}</main>
       <footer className="dashboard-footer"><span>{workspace.title}</span><span>Основа системы · Модули в разработке</span></footer>
     </div>

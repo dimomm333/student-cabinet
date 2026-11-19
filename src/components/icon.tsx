@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  monitor: "M3 4h18v13H3zM8 21h8m-4-4v4",
   moon: "M20.8 13.1A9 9 0 0 1 10.9 3.2a9 9 0 1 0 9.9 9.9Z",
   sun: "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
   arrow: "M5 12h14m-6-6 6 6-6 6",
@@ -35,4 +36,12 @@ export type IconName = keyof typeof paths;
 
 export function Icon({ name, size = 20, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0" style={style}><path d={paths[name]} /></svg>;
+}
+
+export function SystemThemeIcon({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 system-theme-icon">
+    <path d={paths.monitor} />
+    <g className="system-theme-sun" transform="translate(7.2 5.7) scale(.4)" strokeWidth="3"><path d={paths.sun} /></g>
+    <g className="system-theme-moon" transform="translate(7.2 5.7) scale(.4)" strokeWidth="3"><path d={paths.moon} /></g>
+  </svg>;
 }

@@ -42,7 +42,7 @@
 .materials-tree .materials-toolbar { margin:0; gap:2px; }
 .materials-tree h3 { font-size:13px; padding-left:6px; }
 .materials-tree button:not(.text-link) { min-height:44px; padding:7px 6px; color:var(--green); border:0; background:transparent; border-radius:5px; text-align:left; overflow-wrap:anywhere; display:flex; gap:6px; align-items:center; font-size:12px; line-height:1.4; }
-.materials-tree button.active { background:var(--surface-soft, #edf1e8); font-weight:650; }
+.materials-tree button.active { background:var(--surface-active, #edf1e8); font-weight:650; }
 .materials-tree > button { width:100%; }
 .materials-tree > .muted { padding:6px; font-size:12px; line-height:1.4; }
 .materials-folder { display:flex; justify-content:space-between; gap:2px; align-items:start; }

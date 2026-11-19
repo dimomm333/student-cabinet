@@ -11,6 +11,7 @@ import { ProfileLink } from "./profile-link";
 import { NotificationBell } from "./notification-bell";
 import { NotificationBadge } from "./notifications-provider";
 import { ThemeToggle } from "./theme-toggle";
+import { AutoHideHeader } from "./auto-hide-header";
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -102,7 +103,7 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
       </dialog>
 
       <div className="dashboard-workspace">
-        <header className="dashboard-header">
+        <AutoHideHeader>
           <div className="flex min-w-0 items-center gap-3">
             <button
               className="icon-button mobile-menu-trigger"
@@ -125,7 +126,7 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
             <ProfileLink name={name} role="STUDENT" />
             <LogoutButton className="icon-button exit-button" compact />
           </div>
-        </header>
+        </AutoHideHeader>
         <main id="dashboard-main" className="dashboard-main">{children}</main>
         <footer className="dashboard-footer">
           <span>Сделано для твоего учебного дня</span>

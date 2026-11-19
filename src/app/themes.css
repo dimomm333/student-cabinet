@@ -1,5 +1,5 @@
-/* Light variants retain their existing values at each var() fallback. This
-   keeps the original palette exactly, without a second set of component rules. */
+/* Light variants retain their original var() fallbacks. Hue-bearing roles must
+   never alias neutral surfaces, text, borders or shadows. */
 :root {
   color-scheme: light;
   --surface: #fff;
@@ -26,7 +26,26 @@
   --surface-hover: #1c1c1c;
   --surface-active: #15271c;
   --surface-overlay: #ffffff0c;
-  --accent-surface: #0b1810;
+  --brand-soft: #14271c;
+  --brand-solid: var(--action-bg);
+  --brand-hover: var(--action-hover);
+  --brand-banner: #163c2b;
+  --brand-on-banner: #bdd9a9;
+  --brand-text: #a3e8bf;
+  --brand-muted: #9fc89c;
+  --brand-border: #4b805e;
+  --brand-marker: #83b96c;
+  --avatar-bg: #203923;
+  --avatar-text: #b9db9e;
+  --avatar-border: #45693c;
+  --schedule-marker: var(--brand-marker);
+  --selection-bg: #325c42;
+  --info-surface: #14272e;
+  --info-text: #9cc9dc;
+  --info-marker: #7fafc1;
+  --warning-marker: #cfa354;
+  --decoration-warm-surface: #302619;
+  --decoration-warm-text: #d8ba8b;
   --text-primary: #ededed;
   --text-secondary: #ababab;
   --on-action: #f1f7f3;
@@ -49,7 +68,7 @@
   --danger-solid: #b42332;
   --table-border: #626e65;
   --table-grid: #3f4b43;
-  --table-head: #121212;
+  --table-head: #182d21;
   --table-row: #142019;
   --table-column: #1a2920;
   --table-active: #264334;
@@ -81,32 +100,42 @@ dialog { background: var(--surface); color: var(--foreground); }
 
 /* No media filters: the logo, official photos, documents and QR codes keep
    their original pixels. Theme icons use CSS so the first frame is correct. */
-.theme-toggle { position: relative; }
-.theme-toggle > :is(.theme-moon, .theme-sun) { display: inline-flex; }
-.theme-toggle > .theme-sun { display: none; }
-[data-theme="dark"] .theme-toggle > .theme-sun { display: inline-flex; }
-[data-theme="dark"] .theme-toggle > .theme-moon { display: none; }
-.theme-tooltip {
+.theme-picker { position: relative; flex-shrink: 0; }
+/* The display inside the monitor follows the OS, including in manual modes. */
+.system-theme-icon > .system-theme-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  .system-theme-icon > .system-theme-sun { display: none; }
+  .system-theme-icon > .system-theme-moon { display: inline; }
+}
+.theme-toggle > :is(.theme-moon, .theme-sun) { display: none; }
+.theme-toggle > .theme-system { display: inline-flex; }
+[data-theme-preference="light"] .theme-toggle > .theme-sun,
+[data-theme-preference="dark"] .theme-toggle > .theme-moon { display: inline-flex; }
+[data-theme-preference="light"] .theme-toggle > .theme-system,
+[data-theme-preference="dark"] .theme-toggle > .theme-system { display: none; }
+.theme-menu {
   position: absolute;
   z-index: 50;
   top: calc(100% + 7px);
   right: 0;
-  padding: 5px 8px;
-  border-radius: 5px;
-  background: var(--tooltip-bg);
-  color: var(--tooltip-text);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: nowrap;
-  pointer-events: none;
-  visibility: hidden;
+  width: 190px;
+  max-width: calc(100vw - 24px);
+  padding: 5px;
+  border: 1px solid var(--border-subtle, #dce2d3);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 8px 24px var(--shadow, #233b2926);
 }
-.theme-toggle:is(:hover, :focus-visible) .theme-tooltip { visibility: visible; }
+.theme-menu button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 40px; padding: 8px; border: 0; border-radius: 5px; background: transparent; color: inherit; text-align: left; font-size: 13px; }
+.theme-menu button > span { flex: 1; }
+.theme-menu button[aria-checked="true"] { background: var(--surface-active, #e9efdf); color: var(--green); }
+.theme-menu button:is(:hover, :focus-visible) { background: var(--surface-hover, #edf1e9); outline-offset: -2px; }
 .login-heading { display: flex; gap: 16px; align-items: center; max-width: 100%; }
 @media (max-width: 650px) {
   .portal-header { flex-wrap: wrap; padding-block: 14px; }
   .portal-header nav { order: 3; flex-basis: 100%; justify-content: center; }
-  .portal-header .theme-toggle { margin-left: auto; }
+  .portal-header .theme-picker { margin-left: auto; }
 }
 @media (max-width: 480px) {
   .dashboard-header > div:first-child { flex: 1; overflow: hidden; }
