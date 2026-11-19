@@ -6,6 +6,7 @@ import { Brand } from "@/components/brand";
 import { LoginForm } from "@/components/login-form";
 import { getCurrentUser } from "@/lib/access";
 import { isRole, roleHomes } from "@/lib/roles";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const metadata: Metadata = { title: "Вход в университетскую систему" };
 
@@ -14,7 +15,7 @@ async function LoginContent() {
   if (user && isRole(user.role)) redirect(roleHomes[user.role]);
 
   return <main className="login-page">
-    <Brand />
+    <div className="login-heading"><Brand /><ThemeToggle /></div>
     <section className="login-card panel">
       <span className="eyebrow">Единая учётная запись</span>
       <h1>Рады видеть тебя</h1>

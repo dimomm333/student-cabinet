@@ -1,0 +1,116 @@
+/* Light variants retain their existing values at each var() fallback. This
+   keeps the original palette exactly, without a second set of component rules. */
+:root {
+  color-scheme: light;
+  --surface: #fff;
+  --action-bg: #245b45;
+  --action-hover: #194432;
+  --tooltip-bg: #24382e;
+  --tooltip-text: #fff;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #ededed;
+  --green: #83d5a4;
+  --green-dark: #a3e8bf;
+  --muted: #ababab;
+  --line: #292929;
+  --chrome: #000000;
+  --page-surface: #000000;
+  --surface: #080808;
+  --surface-paper: var(--surface);
+  --surface-raised: #0c0c0c;
+  --surface-soft: #121212;
+  --surface-hover: #1c1c1c;
+  --surface-active: #15271c;
+  --surface-overlay: #ffffff0c;
+  --accent-surface: #0b1810;
+  --text-primary: #ededed;
+  --text-secondary: #ababab;
+  --on-action: #f1f7f3;
+  --action-bg: #245b45;
+  --action-hover: #2e7054;
+  --border-subtle: #333333;
+  --border-strong: #626262;
+  --border-overlay: #ffffff26;
+  --focus: #83d5a4;
+  --shadow: #00000080;
+  --success-surface: #0a140e;
+  --success-text: #9addb1;
+  --success-border: #41634a;
+  --warning-surface: #141108;
+  --warning-text: #e6c585;
+  --warning-border: #80683c;
+  --danger-surface: #180c0d;
+  --danger-text: #f2aaa7;
+  --danger-border: #86514e;
+  --danger-solid: #b42332;
+  --table-border: #626e65;
+  --table-grid: #3f4b43;
+  --table-head: #121212;
+  --table-row: #142019;
+  --table-column: #1a2920;
+  --table-active: #264334;
+  --tooltip-bg: #202020;
+  --tooltip-text: #ededed;
+}
+
+/* Native controls, dialogs and browser autofill also belong to the theme. */
+html { background: var(--background); }
+input, select, textarea { color: inherit; }
+dialog { background: var(--surface); color: var(--foreground); }
+:root[data-theme="dark"] :is(input, select, textarea) {
+  background-color: var(--surface);
+  color: var(--foreground);
+}
+:root[data-theme="dark"] :is(input, textarea)::placeholder { color: #999; opacity: 1; }
+:root[data-theme="dark"] input:autofill {
+  box-shadow: inset 0 0 0 1000px var(--surface);
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+}
+:root[data-theme="dark"] ::file-selector-button {
+  background: var(--surface-soft);
+  color: var(--foreground);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+:root[data-theme="dark"] ::backdrop { background: #000000b3; }
+
+/* No media filters: the logo, official photos, documents and QR codes keep
+   their original pixels. Theme icons use CSS so the first frame is correct. */
+.theme-toggle { position: relative; }
+.theme-toggle > :is(.theme-moon, .theme-sun) { display: inline-flex; }
+.theme-toggle > .theme-sun { display: none; }
+[data-theme="dark"] .theme-toggle > .theme-sun { display: inline-flex; }
+[data-theme="dark"] .theme-toggle > .theme-moon { display: none; }
+.theme-tooltip {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 7px);
+  right: 0;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+}
+.theme-toggle:is(:hover, :focus-visible) .theme-tooltip { visibility: visible; }
+.login-heading { display: flex; gap: 16px; align-items: center; max-width: 100%; }
+@media (max-width: 650px) {
+  .portal-header { flex-wrap: wrap; padding-block: 14px; }
+  .portal-header nav { order: 3; flex-basis: 100%; justify-content: center; }
+  .portal-header .theme-toggle { margin-left: auto; }
+}
+@media (max-width: 480px) {
+  .dashboard-header > div:first-child { flex: 1; overflow: hidden; }
+  .dashboard-header .breadcrumb { flex: 1; }
+  .header-actions .theme-toggle { width: 33px; }
+  .header-actions .demo-badge { display: none; }
+}

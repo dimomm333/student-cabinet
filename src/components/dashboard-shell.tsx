@@ -10,6 +10,7 @@ import { LogoutButton } from "./auth-controls";
 import { ProfileLink } from "./profile-link";
 import { NotificationBell } from "./notification-bell";
 import { NotificationBadge } from "./notifications-provider";
+import { ThemeToggle } from "./theme-toggle";
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -119,6 +120,7 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
           </div>
           <div className="header-actions">
             <span className="demo-badge"><span className="status-dot" /> Деморежим</span>
+            <ThemeToggle />
             <NotificationBell href="/dashboard/notifications" />
             <ProfileLink name={name} role="STUDENT" />
             <LogoutButton className="icon-button exit-button" compact />

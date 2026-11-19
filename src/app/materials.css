@@ -4,7 +4,7 @@
 .materials-workspace .dashboard-title p { margin-top:4px; line-height:1.45; }
 .materials-workspace:has(.materials-layout) .dashboard-title > div > .eyebrow,
 .materials-workspace:has(.materials-layout) .dashboard-title p { display:none; }
-.materials-workspace input:not([type=checkbox]), .materials-workspace select, .materials-workspace textarea { display:block; width:100%; min-width:0; min-height:44px; margin-top:4px; padding:9px 10px; border:1px solid #c8d0c7; border-radius:6px; background:#fff; color:var(--foreground); font:inherit; }
+.materials-workspace input:not([type=checkbox]), .materials-workspace select, .materials-workspace textarea { display:block; width:100%; min-width:0; min-height:44px; margin-top:4px; padding:9px 10px; border:1px solid var(--border-subtle, #c8d0c7); border-radius:6px; background:var(--surface); color:var(--foreground); font:inherit; }
 .materials-workspace textarea { min-height:72px; resize:vertical; }
 .materials-workspace label { display:block; min-width:0; font-size:12px; font-weight:600; }
 .materials-workspace input[type=checkbox] { accent-color:var(--green); margin:0 6px 0 0; flex-shrink:0; }
@@ -16,7 +16,7 @@
 .materials-course { text-align:left; padding:16px; display:grid; grid-template-columns:32px minmax(0,1fr); column-gap:10px; row-gap:5px; align-content:start; color:inherit; }
 .materials-course > .icon-tile { grid-column:1; grid-row:1 / span 3; width:32px; height:36px; border-radius:6px; }
 .materials-course > :not(.icon-tile) { grid-column:2; overflow-wrap:anywhere; }
-.materials-course:hover { border-color:#8aa58b; }
+.materials-course:hover { border-color:var(--border-strong, #8aa58b); }
 .materials-course h2 { font-size:16px; line-height:1.35; }
 .materials-course p,.materials-course small { color:var(--muted); font-size:12px; line-height:1.4; }
 .materials-course > span:last-of-type { color:var(--green); font-size:12px; }
@@ -34,26 +34,26 @@
 .materials-search { width:100%; position:relative; }
 .materials-search > span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .materials-search input[type=search] { margin-top:0; }
-.materials-tabs { display:flex; min-width:0; max-width:100%; flex:0 1 auto; gap:3px; margin:0; padding:2px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin; border-radius:6px; background:#edf1e8; }
+.materials-tabs { display:flex; min-width:0; max-width:100%; flex:0 1 auto; gap:3px; margin:0; padding:2px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin; border-radius:6px; background:var(--surface-soft, #edf1e8); }
 .materials-tabs button { flex-shrink:0; min-height:44px; padding:8px 11px; border:1px solid transparent; border-radius:5px; background:transparent; color:var(--green-dark); font-size:12px; white-space:nowrap; }
-.materials-tabs button[aria-pressed=true] { background:var(--green); color:white; }
+.materials-tabs button[aria-pressed=true] { background:var(--action-bg); color:var(--on-action, white); }
 .materials-layout { display:grid; grid-template-columns:180px minmax(0,1fr); align-items:start; gap:12px; }
 .materials-tree { padding:8px; min-width:0; }
 .materials-tree .materials-toolbar { margin:0; gap:2px; }
 .materials-tree h3 { font-size:13px; padding-left:6px; }
 .materials-tree button:not(.text-link) { min-height:44px; padding:7px 6px; color:var(--green); border:0; background:transparent; border-radius:5px; text-align:left; overflow-wrap:anywhere; display:flex; gap:6px; align-items:center; font-size:12px; line-height:1.4; }
-.materials-tree button.active { background:#edf1e8; font-weight:650; }
+.materials-tree button.active { background:var(--surface-soft, #edf1e8); font-weight:650; }
 .materials-tree > button { width:100%; }
 .materials-tree > .muted { padding:6px; font-size:12px; line-height:1.4; }
 .materials-folder { display:flex; justify-content:space-between; gap:2px; align-items:start; }
 .materials-folder > button:first-child { flex:1; min-width:0; }
 .materials-folder > button:last-child:not(:first-child) { min-width:44px; justify-content:center; font-size:18px; }
 .materials-folder svg { flex-shrink:0; }
-.materials-list { display:flex; min-width:0; flex-direction:column; gap:0; container-type:inline-size; border:1px solid var(--line); border-radius:8px; background:white; }
+.materials-list { display:flex; min-width:0; flex-direction:column; gap:0; container-type:inline-size; border:1px solid var(--line); border-radius:8px; background:var(--surface); }
 .materials-list > .material-card { padding:10px 12px; min-width:0; overflow-wrap:anywhere; border:0; border-bottom:1px solid var(--line); border-radius:0; }
 .material-card:first-child { border-radius:8px 8px 0 0; }
 .material-card:last-child { border-bottom:0; border-radius:0 0 8px 8px; }
-.material-card.material-focused { background:#f3f7ef; box-shadow:inset 3px 0 var(--green); }
+.material-card.material-focused { background:var(--surface-raised, #f3f7ef); box-shadow:inset 3px 0 var(--green); }
 .material-body { min-width:0; }
 .material-heading-line { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0 8px; min-width:0; }
 .material-kind { color:var(--green); font-size:11px; line-height:1.5; }
@@ -80,7 +80,7 @@
 .materials-groups label { display:flex; min-height:44px; gap:4px; align-items:center; }
 .materials-queue { margin:0; padding-left:20px; overflow-wrap:anywhere; font-size:12px; line-height:1.5; max-height:150px; overflow:auto; }
 .materials-queue strong { color:var(--green); margin-left:6px; }
-.materials-message { padding:10px 12px; border-radius:6px; background:#edf1e8; color:var(--green); margin-bottom:10px; font-size:13px; }
+.materials-message { padding:10px 12px; border-radius:6px; background:var(--surface-soft, #edf1e8); color:var(--green); margin-bottom:10px; font-size:13px; }
 .materials-empty { padding:24px 16px; display:flex; align-items:center; flex-direction:column; gap:8px; text-align:center; }
 .materials-empty h3 { font-size:15px; }
 .materials-empty p { color:var(--muted); line-height:1.5; max-width:470px; font-size:13px; }

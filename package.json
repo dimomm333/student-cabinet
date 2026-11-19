@@ -37,6 +37,7 @@
     "test:auth": "node --env-file-if-exists=.env scripts/verify-auth.mjs",
     "test:api": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-schedule-api.mjs",
     "test:auth:navigation": "node --env-file-if-exists=.env scripts/verify-cabinet-navigation.mjs",
+    "test:themes": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-themes.mjs",
     "test:schedule:browser": "node --env-file-if-exists=.env scripts/verify-schedule-browser.mjs",
     "test": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-schedule.mjs",
     "test:auth:dev": "node --env-file-if-exists=.env scripts/verify-auth-security.mjs --development",
