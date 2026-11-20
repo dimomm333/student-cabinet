@@ -9,6 +9,226 @@ datasource db {
   provider = "sqlite"
 }
 
+enum ClearanceReason {
+  GRADUATION
+  WITHDRAWAL
+  TRANSFER
+}
+
+enum ClearanceStatus {
+  DRAFT
+  IN_PROGRESS
+  ACTION_REQUIRED
+  READY_FOR_FINAL_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum ClearanceStepStatus {
+  PENDING
+  IN_REVIEW
+  ACTION_REQUIRED
+  APPROVED
+  NOT_APPLICABLE
+}
+
+enum ClearanceRule {
+  ALWAYS
+  DORMITORY
+  PAID
+  EQUIPMENT
+  GRADUATION
+  MANUAL
+  FINAL
+}
+
+model ClearanceDepartment {
+  id          String                  @id @default(cuid())
+  code        String                  @unique
+  name        String
+  description String
+  contact     String
+  active      Boolean                 @default(true)
+  sortOrder   Int                     @default(0)
+  version     Int                     @default(1)
+  grants      ClearanceGrant[]
+  rules       ClearanceTemplateRule[]
+  steps       ClearanceStep[]
+}
+
+model ClearanceGrant {
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  departmentId String
+  department   ClearanceDepartment @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  active       Boolean             @default(true)
+
+  @@id([userId, departmentId])
+  @@index([departmentId, active])
+}
+
+model ClearanceTemplate {
+  id        String                  @id @default(cuid())
+  name      String
+  reason    ClearanceReason
+  active    Boolean                 @default(true)
+  version   Int                     @default(1)
+  rules     ClearanceTemplateRule[]
+  processes ClearanceProcess[]
+
+  @@index([reason, active])
+}
+
+model ClearanceTemplateRule {
+  templateId   String
+  template     ClearanceTemplate   @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  departmentId String
+  department   ClearanceDepartment @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  rule         ClearanceRule
+
+  @@id([templateId, departmentId])
+}
+
+model ClearanceProcess {
+  notificationEvents NotificationEvent[]
+  id                   String             @id @default(cuid())
+  number               String             @unique
+  studentId            String
+  student              User               @relation("ClearanceStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  academicDepartmentId String
+  academicDepartment   AcademicDepartment @relation(fields: [academicDepartmentId], references: [id], onDelete: Restrict)
+  templateId           String
+  template             ClearanceTemplate  @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateName         String
+  templateVersion      Int
+  reason               ClearanceReason
+  basisNote            String
+  orderNumber          String?
+  orderDate            DateTime?
+  startsOn             DateTime
+  plannedOn            DateTime?
+  studentName          String
+  groupName            String
+  status               ClearanceStatus    @default(DRAFT)
+  // Non-null only while active, including draft: portable unique reservation.
+  activeKey            String?            @unique
+  version              Int                @default(1)
+  openedAt             DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  serviceRequestId     String?
+  serviceRequest       ServiceRequest?    @relation(fields: [serviceRequestId], references: [id], onDelete: Restrict)
+  steps                ClearanceStep[]
+  history              ClearanceHistory[]
+  document             ClearanceDocument?
+
+  @@index([studentId, createdAt, id])
+  @@index([academicDepartmentId, status, createdAt])
+  @@index([status, reason, createdAt])
+}
+
+model ClearanceStep {
+  id                 String              @id @default(cuid())
+  processId          String
+  process            ClearanceProcess    @relation(fields: [processId], references: [id], onDelete: Restrict)
+  departmentId       String
+  department         ClearanceDepartment @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  name               String
+  description        String
+  contact            String
+  sortOrder          Int
+  rule               ClearanceRule
+  isFinal            Boolean             @default(false)
+  needsClarification Boolean             @default(false)
+  applicabilityNote  String?
+  status             ClearanceStepStatus @default(PENDING)
+  decidedById        String?
+  decidedByName      String?
+  decidedAt          DateTime?
+  remarks            ClearanceRemark[]
+  history            ClearanceHistory[]
+
+  @@unique([processId, departmentId])
+  @@index([departmentId, status, processId])
+}
+
+model ClearanceRemark {
+  id              String           @id @default(cuid())
+  stepId          String
+  step            ClearanceStep    @relation(fields: [stepId], references: [id], onDelete: Restrict)
+  category        String
+  description     String
+  requiredAction  String
+  contact         String
+  dueOn           DateTime?
+  amountMinor     Int?
+  actorId         String
+  actorName       String
+  resolvedAt      DateTime?
+  responsePending Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  replies         ClearanceReply[]
+
+  @@index([stepId, resolvedAt])
+}
+
+model ClearanceReply {
+  id        String          @id @default(cuid())
+  remarkId  String
+  remark    ClearanceRemark @relation(fields: [remarkId], references: [id], onDelete: Restrict)
+  actorId   String
+  actorName String
+  text      String
+  createdAt DateTime        @default(now())
+
+  @@index([remarkId, createdAt])
+}
+
+// Append-only. Actor IDs and names are snapshots and survive account changes.
+model ClearanceHistory {
+  id             String            @id @default(cuid())
+  processId      String?
+  process        ClearanceProcess? @relation(fields: [processId], references: [id], onDelete: Restrict)
+  stepId         String?
+  step           ClearanceStep?    @relation(fields: [stepId], references: [id], onDelete: Restrict)
+  actorId        String
+  actorName      String
+  action         String
+  text           String
+  studentVisible Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+
+  @@index([processId, createdAt, id])
+}
+
+model ClearanceDocument {
+  processId     String           @id
+  process       ClearanceProcess @relation(fields: [processId], references: [id], onDelete: Restrict)
+  snapshotJson  String
+  content       Bytes
+  sha256        String
+  invalidatedAt DateTime?
+  createdAt     DateTime         @default(now())
+}
+
+model ClearanceReceipt {
+  actorId    String
+  actor      User    @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  key        String
+  hash       String
+  processId  String?
+  resultJson String
+
+  @@id([actorId, key])
+}
+
+model ClearanceWriteState {
+  id      String @id
+  version Int    @default(0)
+}
+
 enum ServiceStatus {
   DRAFT
   SUBMITTED
@@ -56,6 +276,7 @@ model ServiceGrant {
 }
 
 model ServiceRequest {
+  clearances ClearanceProcess[]
   id String @id @default(cuid())
   ownerId String
   owner User @relation("ServiceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
@@ -169,6 +390,9 @@ enum Role {
 }
 
 model User {
+  clearances ClearanceProcess[] @relation("ClearanceStudent")
+  clearanceGrants ClearanceGrant[]
+  clearanceReceipts ClearanceReceipt[]
   id                    String                 @id @default(cuid())
   name                  String
   email                 String                 @unique
@@ -385,6 +609,9 @@ model News {
 // Events and addressed notifications are committed with the authoritative change.
 // sourceKey is stable across retries; seq is the inbox high-water mark.
 model NotificationEvent {
+  @@index([clearanceProcessId])
+  clearanceProcessId String?
+  clearanceProcess ClearanceProcess? @relation(fields: [clearanceProcessId], references: [id], onDelete: Restrict)
   id String @id @default(cuid())
   sourceKey String @unique
   source String
@@ -494,6 +721,7 @@ model StudyGroup {
 
 // Faculty is a category of departments; no separate faculty entity is needed yet.
 model AcademicDepartment {
+  clearances ClearanceProcess[]
   id String @id @default(cuid())
   faculty String
   name String

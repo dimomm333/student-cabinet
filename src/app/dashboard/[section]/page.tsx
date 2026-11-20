@@ -6,7 +6,7 @@ import { sections } from "@/lib/demo-data";
 import { requireRole } from "@/lib/access";
 
 export function generateStaticParams() {
-  return sections.filter(section => !["profile", "grades", "session", "services", "notifications", "materials"].includes(section.slug)).map((section) => ({ section: section.slug }));
+  return sections.filter(section => !["profile", "grades", "session", "services", "notifications", "materials", "clearance"].includes(section.slug)).map((section) => ({ section: section.slug }));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ section: string }> }): Promise<Metadata> {

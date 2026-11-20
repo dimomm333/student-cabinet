@@ -61,7 +61,7 @@ export async function deliverNotificationEmails(db: PrismaClient, adapter = smtp
       if (row.channel !== "PERSONAL_EMAIL" || !authorized || !n.recipient.emailVerified || !emailAddress(n.recipient.email) || !settings.personalEmail || !settings.emailCategories.includes(n.event.category as NotificationCategory)) {
         await db.notificationEmail.updateMany({ where: { id: row.id, leaseToken: token }, data: { state: "failed", attempts: 4, lastError: "DELIVERY_NOT_ALLOWED", leaseUntil: null, leaseToken: null } }); failed++; continue;
       }
-      const [subject, text] = copy[n.event.category] ?? ["ЛКС — новое уведомление", "В ЛКС есть новое уведомление. Откройте личный кабинет для просмотра подробностей."];
+      const [subject, text] = n.event.source === "CLEARANCE" ? ["ЛКС — обновлён обходной лист", "В обходном листе есть изменения. Откройте личный кабинет для просмотра подробностей."] : copy[n.event.category] ?? ["ЛКС — новое уведомление", "В ЛКС есть новое уведомление. Откройте личный кабинет для просмотра подробностей."];
       await adapter.send({ to: n.recipient.email, subject, text: `${text}\n\n${config.origin}${safeNotificationHref(n.href)}`, messageId: `<lks-notification-${n.seq}@${new URL(config.origin).hostname}>` });
       await db.notificationEmail.updateMany({ where: { id: row.id, leaseToken: token }, data: { state: "sent", sentAt: new Date(), lastError: null, leaseUntil: null, leaseToken: null } }); sent++;
     } catch {

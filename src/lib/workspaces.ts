@@ -5,6 +5,7 @@ export type WorkspaceRole = Exclude<Role, "STUDENT">;
 export type WorkspaceSection = { slug: string; title: string; icon: IconName; description: string };
 const profileSection: WorkspaceSection = { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные и сведения об учётной записи." };
 const notificationsSection: WorkspaceSection = { slug: "notifications", title: "Уведомления", icon: "bell", description: "Уведомления об учёбе и работе университета." };
+const clearanceSection: WorkspaceSection = { slug: "clearance", title: "Обходные листы", icon: "check", description: "Проверки подразделений, замечания и итоговые согласования." };
 
 export const workspaces: Record<WorkspaceRole, { title: string; description: string; sections: WorkspaceSection[] }> = {
   DEANERY_STAFF: {
@@ -19,6 +20,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       { slug: "admissions", title: "Допуски", icon: "check", description: "Подтверждение и отзыв допуска к обычным экзаменам." },
       { slug: "session", title: "Сессия", icon: "calendar", description: "Экзаменационные попытки, итоги и задолженности." },
       { slug: "requests", title: "Заявки и заявления", icon: "clipboard", description: "Очередь заявлений, уточнения, документы и решения в пределах полномочий." },
+      clearanceSection,
       notificationsSection,
       profileSection,
     ],
@@ -46,6 +48,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       profileSection,
       { slug: "requests", title: "Технические заявки", icon: "clipboard", description: "Технические обращения и их обработка." },
       { slug: "services", title: "Заявления студентов", icon: "folder", description: "Заявления по назначенным услугам." },
+      clearanceSection,
       { slug: "equipment", title: "Оборудование", icon: "grid", description: "Учёт оборудования университета." },
       { slug: "rooms", title: "Аудитории", icon: "pin", description: "Аудитории и их оснащение." },
       { slug: "tasks", title: "Задачи", icon: "check", description: "Рабочие задачи технической службы." },
@@ -63,6 +66,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       { slug: "requests", title: "Заявки студентов", icon: "clipboard", description: "Заявления и документы, доступные по явным полномочиям." },
       { slug: "academic", title: "Учебные данные", icon: "book", description: "Структура учебных данных." },
       { slug: "settings", title: "Настройки", icon: "shield", description: "Настройки университетской системы." },
+      clearanceSection,
     ],
   },
 };

@@ -7,6 +7,10 @@
     "node": "^22.18.0 || ^24.0.0 || ^26.0.0"
   },
   "scripts": {
+    "db:clearance": "node --env-file-if-exists=.env scripts/prepare-clearance.mjs --apply",
+    "clearance:configure": "node --env-file-if-exists=.env --conditions=react-server scripts/seed-clearance.mjs --configure-only --apply",
+    "clearance:demo": "node --env-file-if-exists=.env --conditions=react-server scripts/seed-clearance.mjs",
+    "test:clearance": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-clearance.mjs",
     "test:dashboard": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-dashboard.mjs",
     "db:dashboard": "node --env-file-if-exists=.env scripts/prepare-dashboard.mjs --apply",
     "db:brs:review": "node --env-file-if-exists=.env scripts/prepare-brs-finals.mjs --apply",
