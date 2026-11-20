@@ -97,6 +97,8 @@ async function checkSemanticColors(page, theme, label) {
 }
 async function check(page, theme, label, capture = true) {
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+  const visibleCopy = await page.locator('body').innerText();
+  assert(!/Деморежим|Учебный прототип|Вымышленное объявление|согласованная демонстрационная модель|Твоё пространство|Сделано для твоего|Привет,|Учебный пример · осень 2026|Вход и разграничение доступа уже работают/.test(visibleCopy), 'Presentation copy regression: ' + label);
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Page overflow: ' + label);
   const state = await page.evaluate(() => {
     const visible = el => el.getBoundingClientRect().width && el.getBoundingClientRect().height && getComputedStyle(el).visibility !== 'hidden';
@@ -246,7 +248,7 @@ async function preferences(base) {
   await systemThemeIcons(page);
   await matrix(page, 'public-home');
   await page.goto(base + '/login'); await settle(page); await matrix(page, 'login');
-  await page.getByLabel('Университетский email').fill('invalid@example.test');
+  await page.getByLabel('Университетская почта').fill('invalid@example.test');
   await page.getByLabel('Пароль').fill('invalid-password'); await page.getByRole('button', { name: 'Войти в кабинет', exact: true }).click();
   await expect(page.locator('.auth-error')).toBeVisible();
   if (await page.locator('html').getAttribute('data-theme') !== 'dark') await chooseTheme(page, 'dark');

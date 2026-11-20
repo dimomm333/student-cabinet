@@ -1,3 +1,4 @@
+import { presentAcademicText } from "@/lib/presentation-copy";
 import { identifyPair, pairTimeLabel } from "@/lib/schedule-bells";
 import Link from "next/link";
 import type { PublicLesson, ScheduleModel } from "@/lib/schedule-repository";
@@ -20,7 +21,7 @@ export function ScheduleView({ model, path, view, day, invalid = false, personal
   const query = { view, selected: model.selected?.slug ?? "", week: model.weekStart, day, term: model.termCode };
   const href = (patch: Record<string, string>) => scheduleHref(path, query, patch);
   const total = model.days.reduce((sum, item) => sum + item.lessons.filter(lesson => !lesson.change?.cancelled).length, 0);
-  const activeWeeks = model.terms.filter(term => term.code === model.termCode).flatMap(term => academicWeeks(term.startsOn, term.endsOn).filter(week => week.start === model.weekStart).map(week => `${term.name} · Неделя №${week.number}`));
+  const activeWeeks = model.terms.filter(term => term.code === model.termCode).flatMap(term => academicWeeks(term.startsOn, term.endsOn).filter(week => week.start === model.weekStart).map(week => `${presentAcademicText(term.name)} · Неделя №${week.number}`));
   return <section className="schedule-results" aria-labelledby="schedule-result-title">
     {invalid && <div className="schedule-alert" role="alert">Некорректные параметры. Выберите день и неделю заново.</div>}
     <div className="schedule-week-heading"><div><span className="eyebrow">{view === "group" ? "Учебная группа" : "Преподаватель"}</span><h2 id="schedule-result-title">{model.selected?.name ?? (personal ? "Профиль расписания не заполнен" : "Ничего не найдено")}</h2><p>{weekRangeLabel(model.weekStart, model.weekEnd)} <span>·</span> {model.parity}</p>{activeWeeks.map(label => <p key={label}>{label}</p>)}</div><span className="schedule-week-count">{lessonCountLabel(total)} за неделю</span></div>
@@ -31,6 +32,6 @@ export function ScheduleView({ model, path, view, day, invalid = false, personal
       <div className={"schedule-day-grid" + (day ? " schedule-single-day" : "")}>{model.days.filter(item => !day || item.dayOfWeek === day).map(item => <ScheduleDay key={item.date} day={item} today={today} />)}</div>
     </>}
     {model.truncated && <p className="schedule-alert" role="status">Показаны первые 300 записей. Для уточнения расписания обратитесь к администратору.</p>}
-    <p className="schedule-footnote"><Icon name="clock" size={16} /> Время занятий — московское (Europe/Moscow). Числитель и знаменатель определяются учебным календарём. Данные учебного примера вымышлены.</p>
+    <p className="schedule-footnote"><Icon name="clock" size={16} /> Время московское. Числитель и знаменатель — по учебному календарю.</p>
   </section>;
 }

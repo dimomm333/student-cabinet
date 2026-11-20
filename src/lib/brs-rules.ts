@@ -1,6 +1,7 @@
 import { add, compare, exactDto, fraction, integerRating, ratingValue, roundedHundredths, subtract } from "./brs-exact.ts";
 // Stored scales and primary inputs use integer hundredths. Sums retain exact fractions.
 export const controlLabels = { CREDIT: "З", DIFFERENTIATED: "ДифЗ", EXAM: "Э", DISTRIBUTED: "РЭкз" } as const;
+export const controlTitles = { CREDIT: "Зачёт", DIFFERENTIATED: "Дифференцированный зачёт", EXAM: "Экзамен", DISTRIBUTED: "Сессионный экзамен" } as const;
 export type Control = keyof typeof controlLabels;
 export const eventLabels = { HOMEWORK: "ДЗ", LAB: "ЛР", INTERIM: "РК", FINAL: "Итоговый РК", SEMINAR: "Семинар" } as const;
 export type EventKind = keyof typeof eventLabels;

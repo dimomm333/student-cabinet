@@ -5,7 +5,7 @@ import { themeInitScript } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: { default: "Северный университет — Кабинет студента", template: "%s · Северный университет" },
-  description: "Демонстрационный кабинет студента: расписание, уведомления и жизнь университета. Все данные вымышлены.",
+  description: "Личный кабинет университета: расписание, успеваемость, учебные материалы и заявления.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

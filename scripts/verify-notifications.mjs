@@ -221,18 +221,18 @@ try {
   assert.equal((await context.request.get(base + '/api/notifications?recipientId=' + maria.id)).status(), 400);
   assert.equal((await context.request.post(base + '/api/notifications', { headers: { Origin: 'https://evil.test' }, data: { operation: 'READ_ALL', boundary: 99999 } })).status(), 403);
   assert.equal((await context.request.post(base + '/api/notifications', { headers: { Origin: base }, data: { operation: 'READ', boundary: foreign.id, recipientId: maria.id } })).status(), 400);
-  await page.goto(base + '/dashboard'); await expect(page.locator('.notification-summary strong')).toHaveText(String((await listNotifications(db, a)).unread));
-  const previousCount = Number(await page.locator('.notification-summary strong').innerText());
+  await page.goto(base + '/dashboard'); await expect(page.locator('.home-notifications')).toHaveAttribute('data-unread',String((await listNotifications(db, a)).unread));
+  const previousCount = Number(await page.locator('.home-notifications').getAttribute('data-unread'));
   await emit(alex, 'browser-no-f5');
-  await expect(page.locator('.notification-summary strong')).toHaveText(String(previousCount + 1), { timeout: 18000 });
+  await expect(page.locator('.home-notifications')).toHaveAttribute('data-unread',String(previousCount + 1), { timeout: 18000 });
   await expect(page.locator('.desktop-sidebar .notification-count')).toHaveText(String(previousCount + 1));
   await expect(page.locator('.dashboard-header .notification-bell-count')).toHaveText(previousCount + 1 > 99 ? '99+' : String(previousCount + 1));
-  await expect(page.locator('.notification-list')).toContainText('browser-no-f5');
+  await expect(page.locator('.notification-list')).toHaveCount(0);
   await page.goto(base + '/dashboard/notifications'); await expect(page.locator('.notification-unread')).not.toHaveCount(0);
   assert.equal(await page.getByRole('tab').count(), 0); assert.equal(await page.getByRole('combobox').count(), 0);
   assert.equal(await page.getByRole('button', { name: 'Отметить прочитанным' }).count(), 0);
   await page.screenshot({ path: resolve(root, 'notifications-1366.png'), fullPage: true });
-  const second = await context.newPage(); await second.goto(base + '/dashboard'); await expect(second.locator('.notification-summary')).toBeVisible();
+  const second = await context.newPage(); await second.goto(base + '/dashboard'); await expect(second.locator('.home-notifications')).toBeVisible();
   const countBeforeRead = (await listNotifications(db, a)).unread;
   let injected = false;
   await page.route('**/api/notifications', async route => {
@@ -241,7 +241,7 @@ try {
   });
   await page.getByRole('button', { name: 'Прочитать все', exact: true }).click();
   await expect(page.locator('.notification-summary strong')).toHaveText('1');
-  await second.bringToFront(); await expect(second.locator('.notification-summary strong')).toHaveText('1', { timeout: 18000 });
+  await second.bringToFront(); await expect(second.locator('.home-notifications')).toHaveAttribute('data-unread','1', { timeout: 18000 });
   assert(countBeforeRead > 0); assert.equal((await listNotifications(db, a)).unread, 1);
   await page.unroute('**/api/notifications');
   await page.bringToFront();

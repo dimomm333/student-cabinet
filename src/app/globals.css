@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./services.css";
 @import "./materials.css";
+@import "./dashboard-home.css";
 @import "./themes.css";
 
 :root {
@@ -477,7 +478,7 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .mobile-menu-heading { display: flex; align-items: center; justify-content: space-between; padding-inline: 12px; margin-bottom: 14px; font-size: 12px; }
 .mobile-menu-inner > .brand { margin: 6px 16px 26px; }
 .mobile-menu-inner > .nav-item { margin: 24px 15px 0; border-top: 1px solid var(--line); border-radius: 0; }
-.placeholder-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 510px; padding: 44px 25px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: center; }
+.placeholder-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 320px; padding: 32px 25px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: center; }
 .placeholder-icon { display: grid; place-items: center; width: 88px; height: 88px; margin-bottom: 24px; border-radius: 24px; background: var(--brand-soft, #eef3e6); color: var(--brand-muted, #5d7c47); }
 .placeholder-panel h2 { font-size: 24px; font-weight: 550; letter-spacing: -.5px; margin-top: 20px; line-height: 1.4; }
 .placeholder-panel > p { max-width: 470px; margin-top: 14px; font-size: 13px; color: var(--text-secondary, #7a8671); line-height: 1.8; }
@@ -736,7 +737,7 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
   .news-grid-compact .news-meta time { font-size: 9px; }
   .news-grid-compact .news-details summary { font-size: 11px; }
   .dashboard-footer { margin-inline: 16px; }
-  .placeholder-panel { min-height: 480px; padding: 30px 20px; }
+  .placeholder-panel { min-height: 300px; padding: 28px 20px; }
   .placeholder-panel h2 { font-size: 21px; }
   .placeholder-panel > p { font-size: 12px; }
   .placeholder-panel .button { font-size: 11px; padding-inline: 16px; gap: 15px; }

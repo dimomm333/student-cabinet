@@ -68,15 +68,15 @@ async function verifyNotificationsNavigation(page, context) {
   await page.goto(base + '/dashboard/notifications'); await settle(page);
   await expect(page.locator('main h1:visible')).toHaveText('Уведомления');
   await page.goto(base + '/dashboard'); await settle(page);
-  await page.locator('.services-notifications .panel-heading a').scrollIntoViewIfNeeded();
+  await page.locator('.home-notifications').scrollIntoViewIfNeeded();
   // Next's installed Link explicitly disables prefetch in development.
   // Assert prefetched timing in production; dev still checks every actual
   // navigation, loading diagnostics, session/role refresh and ownership.
-  await page.locator('.services-notifications .panel-heading a').hover();
+  await page.locator('.home-notifications').hover();
   await page.waitForLoadState('networkidle');
   await page.evaluate(() => {
     window.__notificationNavClicked = false;
-    document.querySelector('.services-notifications .panel-heading a').addEventListener('click', () => { window.__notificationNavClicked = true; }, { once: true });
+    document.querySelector('.home-notifications').addEventListener('click', () => { window.__notificationNavClicked = true; }, { once: true });
   });
   const network = await context.newCDPSession(page);
   await network.send('Network.enable');
@@ -87,7 +87,7 @@ async function verifyNotificationsNavigation(page, context) {
     // that shell and the Suspense fallback are valid instant UI. Require one
     // before the deliberately delayed network response could have completed.
     await Promise.all([
-      page.locator('.services-notifications .panel-heading a').click(),
+      page.locator('.home-notifications').click(),
       (async () => {
         await page.waitForFunction(() => window.__notificationNavClicked);
         if (production) await expect(page.locator('section[aria-busy=true][aria-label]').or(page.getByRole('heading', { name: 'Уведомления', level: 1, exact: true })).first()).toBeVisible({ timeout: 1500 });
@@ -234,6 +234,24 @@ try {
     assert.equal(await page.evaluate(() => performance.timeOrigin), documentTime, "Menu navigation reloaded the document");
     await page.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}.png`), fullPage: true });
     pass(`${actor.role}: direct visit, menu and return home`, { sections: links.length });
+    if (!observe && actor.role === 'DEANERY_STAFF') {
+      await page.goto(base + '/deanery/schedule'); await settle(page);
+      for (const width of [1366, 360]) for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.locator('.theme-toggle').click();
+        await page.getByRole('menuitemradio', { name: theme === 'light' ? 'Светлая' : 'Тёмная', exact: true }).click();
+        await page.getByRole('button', { name: 'Добавить регулярную пару', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: 'Редактор занятия' });
+        await expect(dialog).toContainText('Это изменение затронет регулярное расписание всех недель учебного периода.');
+        await expect(dialog).not.toContainText('Это действие относится только к конкретной дате.');
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Regular lesson dialog page overflow');
+        await page.screenshot({ path: resolve(root, `regular-create-${width}-${theme}.png`), fullPage: true, caret: 'initial' });
+        await page.keyboard.press('Escape');
+      }
+      await page.setViewportSize({ width: 1366, height: 900 });
+      await page.goto(base + home); await settle(page);
+      pass('Regular lesson creation warns about all weeks, not a single date', { widths: [1366, 360], themes: ['light', 'dark'] });
+    }
     if (!observe && actor.role === 'STUDENT') await verifyNotificationsNavigation(page, context);
     if (!observe) await verifyProfile(page, context, actor, home);
     if (!observe) {

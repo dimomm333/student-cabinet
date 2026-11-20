@@ -7,6 +7,8 @@
     "node": "^22.18.0 || ^24.0.0 || ^26.0.0"
   },
   "scripts": {
+    "test:dashboard": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-dashboard.mjs",
+    "db:dashboard": "node --env-file-if-exists=.env scripts/prepare-dashboard.mjs --apply",
     "db:brs:review": "node --env-file-if-exists=.env scripts/prepare-brs-finals.mjs --apply",
     "db:brs:grading": "node --env-file-if-exists=.env scripts/prepare-brs-grading.mjs --apply",
     "db:brs:refine": "node --env-file-if-exists=.env scripts/prepare-brs-primary.mjs --apply",

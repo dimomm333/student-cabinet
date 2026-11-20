@@ -53,7 +53,7 @@ export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; 
         <div className="header-actions"><ThemeToggle /><NotificationBell href={`${home}/notifications`} /><ProfileLink name={name} role={role} /><LogoutButton className="icon-button" compact /></div>
       </AutoHideHeader>
       <main id="workspace-main" className="dashboard-main">{children}</main>
-      <footer className="dashboard-footer"><span>{workspace.title}</span><span>Основа системы · Модули в разработке</span></footer>
+      <footer className="dashboard-footer"><span>{workspace.title}</span><span>Северный университет</span></footer>
     </div>
   </div>;
 }

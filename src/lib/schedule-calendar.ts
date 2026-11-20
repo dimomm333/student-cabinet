@@ -29,8 +29,8 @@ export function mondayOf(date: Date): Date {
   return result;
 }
 
-export function currentAcademicDate(now = new Date()): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+export function currentAcademicDate(now = new Date(), timeZone = "Europe/Moscow"): Date {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
   const part = (type: string) => parts.find(p => p.type === type)!.value;
   return new Date(`${part("year")}-${part("month")}-${part("day")}T00:00:00Z`);
 }

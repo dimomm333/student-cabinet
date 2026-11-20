@@ -210,7 +210,7 @@ try {
     await privatePage.getByLabel("Пароль", { exact: true }).fill(password);
     await privatePage.getByRole("button", { name: "Войти в кабинет", exact: true }).click();
     await privatePage.waitForURL(base + home);
-    if (home === "/dashboard") await expect(privatePage.getByRole("heading", { name: "Ближайшие занятия" })).toBeVisible();
+    if (home === "/dashboard") await expect(privatePage.getByRole("heading", { name: "Расписание", exact: true })).toBeVisible();
     await privatePage.goto(base + home + "/schedule?week=2026-11-09&group=it-25-1&teacher=anna-belova&userId=foreign");
     await expect(privatePage.locator("#schedule-result-title")).toHaveText(expected);
     await expect(privatePage.locator(".public-lesson").first()).toBeVisible();

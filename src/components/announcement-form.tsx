@@ -10,7 +10,7 @@ export function AnnouncementForm({ requestId, departments }: { requestId: string
     return result;
   }, { success: false, message: "" });
   useEffect(() => { if (state.success) window.dispatchEvent(new Event("notifications-updated")); }, [state]);
-  return <form action={action} className="panel notification-settings"><h2>Опубликовать объявление</h2><p>Публикация создаёт настоящее объявление и уведомляет текущих студентов выбранного подразделения.</p>
+  return <form action={action} className="panel notification-settings"><h2>Опубликовать объявление</h2><p>После публикации студенты выбранного подразделения получат уведомление.</p>
     <input type="hidden" name="requestId" value={key} />
     <label>Заголовок<input name="title" required maxLength={180} value={title} onChange={e => setTitle(e.target.value)} /></label><label>Содержание<textarea name="content" required maxLength={10000} rows={6} value={content} onChange={e => setContent(e.target.value)} /></label>
     <label>Получатели<select name="departmentId" value={departmentId} onChange={e => setDepartmentId(e.target.value)}><option value="">Все студенты</option>{departments.map(d => <option value={d.id} key={d.id}>{d.faculty} · {d.name}</option>)}</select></label>

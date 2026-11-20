@@ -46,20 +46,23 @@ export async function studentInPlan(db: BrsDB, actor: BrsActor, plan: FullPlan, 
   const profile = await db.studentProfile.findFirst({ where: { userId: studentId, user: { role: "STUDENT" } }, select: { groupId: true } });
   if (profile?.groupId !== plan.groupId && !allowHistory) fail("Студент не входит в выбранную группу.", 403);
 }
-export async function calculateStudent(db: BrsDB, plan: FullPlan, studentId: string) {
+export async function calculateStudent(db: BrsDB, plan: FullPlan, studentId: string, today = isoDate(currentAcademicDate())) {
   const results = bounded(await db.brsResult.findMany({ where: { studentId, event: { module: { planId: plan.id } } } }), 5000);
   const attempts = bounded(await db.brsExamAttempt.findMany({ where: { planId: plan.id, studentId }, orderBy: { number: "asc" } }), 200);
   const admission = await db.brsAdmission.findUnique({ where: { planId_studentId: { planId: plan.id, studentId } } });
   const attendance = bounded(await db.brsAttendance.findMany({ where: { studentId, occurrence: { planId: plan.id } } }), 5000);
   const modules = effectiveModules(plan.modules, results, attendance);
-  return { calculation: calculateBrs(plan.control, modules, attempts, admission, isoDate(currentAcademicDate())), results, attempts, admission, attendance, modules };
+  return { calculation: calculateBrs(plan.control, modules, attempts, admission, today), results, attempts, admission, attendance, modules };
+}
+export function studentPlansWhere(userId: string): Prisma.BrsPlanWhereInput {
+  return { publishedAt: { not: null }, OR: [{ group: { students: { some: { userId } } } }, { modules: { some: { events: { some: { results: { some: { studentId: userId } } } } } } }, { attempts: { some: { studentId: userId } } }, { occurrences: { some: { attendance: { some: { studentId: userId } } } } }, { finals: { some: { studentId: userId } } }] };
 }
 export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId = "") {
   return db.$transaction(async tx => {
     await freshActor(tx, actor);
     const scope: Prisma.BrsPlanWhereInput = actor.role === "DEANERY_STAFF" ? { group: deaneryGroupWhere(actor) }
       : actor.role === "TEACHER" ? { AND: [{ group: { teachingAssignments: { some: { teacherId: actor.id, isActive: true } } } }] }
-      : { publishedAt: { not: null }, OR: [{ group: { students: { some: { userId: actor.id } } } }, { modules: { some: { events: { some: { results: { some: { studentId: actor.id } } } } } } }, { attempts: { some: { studentId: actor.id } } }, { occurrences: { some: { attendance: { some: { studentId: actor.id } } } } }, { finals: { some: { studentId: actor.id } } }] };
+      : studentPlansWhere(actor.id);
     let plans = bounded(await tx.brsPlan.findMany({ where: scope, select: { id: true, groupId: true, disciplineId: true, termId: true, control: true, publishedAt: true, group: { select: { code: true } }, discipline: { select: { title: true } }, term: { select: { name: true } } }, orderBy: [{ term: { startsOn: "desc" } }, { discipline: { title: "asc" } }], take: 501 }), 500);
     if (actor.role === "TEACHER") {
       const assignments = bounded(await tx.teachingAssignment.findMany({ where: { teacherId: actor.id, isActive: true }, take: 501 }), 500);

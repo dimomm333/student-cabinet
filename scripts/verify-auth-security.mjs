@@ -11,6 +11,7 @@ import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { demoAccounts } from "../src/lib/demo-accounts.ts";
 import { workspaces } from "../src/lib/workspaces.ts";
 import { sections as studentSections } from "../src/lib/demo-data.ts";
+import { presentNews } from "../src/lib/news-presentation.ts";
 import { roleHomes as homes } from "../src/lib/roles.ts";
 
 const development = process.argv.includes("--development");
@@ -183,7 +184,7 @@ try {
     }
     const publicPage = await request("/"); assert.equal(publicPage.status, 200);
     const news = await db.news.findMany({ where: { publishedAt: { lte: new Date() } }, orderBy: [{ publishedAt: "desc" }, { id: "asc" }], take: 3 });
-    for (const item of news) assert(publicPage.text.includes(item.title));
+    for (const item of news) assert(publicPage.text.includes(presentNews(item).title));
     log("Five roles, six accounts, CSRF, logout replay and public news", { anonymous, allowed, rejected, accounts: actors.length });
 
     for (const rememberMe of [false, true, undefined]) {

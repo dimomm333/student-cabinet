@@ -14,7 +14,7 @@ export function ServiceNotifications({ compact = false, home = "/dashboard" }: {
   // full feed asks that same store for fresh data, without another timer.
   useEffect(() => { refresh(); }, [compact, refresh]);
   return <section className="panel notifications-panel services-notifications" aria-label="Уведомления">
-    <div className="panel-heading notifications-heading"><div><h2>Уведомления</h2><p className="notification-summary" role="status">Непрочитанных: <strong>{feed.unread}</strong></p></div>
+    <div className="panel-heading notifications-heading"><div>{compact && <h2>Уведомления</h2>}<p className="notification-summary" role="status">Непрочитанных: <strong>{feed.unread}</strong></p></div>
       {compact ? <Link className="text-link" href={`${home}/notifications`}>Все <Icon name="arrow" size={16} /></Link> : <button className="button button-secondary" disabled={!feed.unread || feed.busy} onClick={() => void feed.read(feed.boundary, true)}>Прочитать все</button>}
     </div>
     {feed.error && <p role="alert" className="services-error">{feed.error} <button onClick={feed.refresh}>Повторить</button></p>}

@@ -204,11 +204,21 @@ model User {
   militaryRecord MilitaryRecord?
   notifications Notification[]
   notificationSettings NotificationSettings?
+  preferences UserPreferences?
   notificationAudits NotificationAudit[]
   materials LearningMaterial[]
   materialFolders MaterialFolder[]
   materialAudits MaterialAudit[]
   materialReceipts MaterialReceipt[]
+}
+
+// Presentation preferences only; no academic records or notification settings.
+model UserPreferences {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dashboardLayoutJson String
+  version Int @default(1)
+  updatedAt DateTime @updatedAt
 }
 
 // Credentials belong to Better Auth's credential Account, never to a profile.

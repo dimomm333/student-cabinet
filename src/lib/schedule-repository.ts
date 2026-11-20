@@ -1,7 +1,7 @@
 import "server-only";
 import type { PrismaClient } from "../generated/prisma/client.ts";
 import { effectiveSchedule, loadScheduleRecords, isPublicPair, type EffectivePair } from "./schedule-effective.ts";
-import { DAY_MS, dayNames, isoDate, minuteLabel, filterScheduleChoices, weekParity, type ScheduleQuery } from "./schedule-calendar.ts";
+import { DAY_MS, dayNames, isoDate, minuteLabel, filterScheduleChoices, weekParity, currentAcademicDate, scheduleHref, mondayOf, type ScheduleQuery } from "./schedule-calendar.ts";
 
 export type PublicChoice = { slug: string; name: string };
 export type GroupChoice = PublicChoice & { programme: string; faculty: string | null; department: string | null; parentSlug: string | null };
@@ -51,7 +51,7 @@ export function groupScope(groups: { slug: string; parentSlug: string | null }[]
 }
 
 // actor is supplied only by the server's requireRole(), never by URL parameters.
-export async function getPersonalScheduleData(prisma: PrismaClient, query: ScheduleQuery, actor: { id: string; role: "STUDENT" | "TEACHER" }) {
+async function personalAudience(prisma: PrismaClient, actor: { id: string; role: "STUDENT" | "TEACHER" }) {
   let selected: PublicChoice | null = null;
   let selector: Audience | null = null;
   let visibleGroups: string[] | undefined;
@@ -67,8 +67,43 @@ export async function getPersonalScheduleData(prisma: PrismaClient, query: Sched
     const profile = await prisma.teacherProfile.findUnique({ where: { userId: actor.id }, select: { publicName: true } });
     if (profile) { selected = { slug: "", name: profile.publicName ?? "Моё расписание" }; selector = { teacherId: actor.id }; }
   }
+  return { selected, selector, visibleGroups };
+}
+export async function getPersonalScheduleData(prisma: PrismaClient, query: ScheduleQuery, actor: { id: string; role: "STUDENT" | "TEACHER" }) {
+  const { selected, selector, visibleGroups } = await personalAudience(prisma, actor);
   // Identity and search parameters are deliberately discarded in a cabinet.
   return readSchedule(prisma, { ...query, selected: "", q: "" }, selected, selector, false, visibleGroups);
+}
+
+// Same audience, effective occurrences and calendar as the full timetable.
+// Search through published terms rather than dropping lessons after 14 days.
+export async function getStudentScheduleOverviewData(prisma: PrismaClient, studentId: string, now = new Date()) {
+  const { selected, selector, visibleGroups } = await personalAudience(prisma, { id: studentId, role: "STUDENT" });
+  const records = await loadScheduleRecords(prisma);
+  const relevant = [...records.entries, ...records.exceptions].filter(record => selector && record.isPublished && record.term.isPublished && matches({ record }, selector));
+  const terms = [...new Map(relevant.map(record => [record.termId, record.term])).values()].sort((a,b) => a.startsOn.getTime() - b.startsOn.getTime());
+  const primary = terms.find(term => { const date = currentAcademicDate(now, term.timeZone); return term.startsOn <= date && date <= term.endsOn; })
+    ?? terms.find(term => term.endsOn >= currentAcademicDate(now, term.timeZone)) ?? terms.at(-1);
+  const timeZone = primary?.timeZone ?? "Europe/Moscow";
+  const todayDate = currentAcademicDate(now, timeZone), today = isoDate(todayDate);
+  const time = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+  const end = new Date(Math.max(todayDate.getTime(), ...terms.map(term => term.endsOn.getTime())));
+  const pairs = selector ? effectiveSchedule(records, todayDate, end, "personal").filter(pair => matches(pair, selector)).map(pair => projectPair(pair, visibleGroups)) : [];
+  const todayLessons = pairs.filter(lesson => lesson.date === today);
+  const next = pairs.find(lesson => !lesson.change?.cancelled && (lesson.date > today || lesson.end > time)) ?? null;
+  const date = next?.date ?? today;
+  const activeTerms = terms.filter(term => term.startsOn <= todayDate && term.endsOn >= todayDate);
+  const parity = [...new Set(activeTerms.map(term => patternNames[weekParity(todayDate, term.firstNumeratorMonday)]))];
+  const day = next ? { date, dayOfWeek: (new Date(date).getUTCDay() + 6) % 7 + 1, name: dayNames[(new Date(date).getUTCDay() + 6) % 7], lessons: pairs.filter(lesson => lesson.date === date) } : null;
+  const href = (lesson: PublicLesson) => scheduleHref("/dashboard/schedule", { view: "group", selected: "", week: isoDate(mondayOf(new Date(lesson.date))), day: (new Date(lesson.date).getUTCDay() + 6) % 7 + 1, term: lesson.termCode });
+  return { today, time, timeZone, selectedDate: date, parity: parity.length === 1 ? parity[0] : parity.length ? "Разные учебные календари" : "Вне учебного периода",
+    todayCount: todayLessons.filter(lesson => !lesson.change?.cancelled).length,
+    todayFirst: todayLessons.find(lesson => !lesson.change?.cancelled)?.start ?? null,
+    day, next, linked: !!selected, group: selected?.name ?? null,
+    reason: !selected ? "unlinked" : !next ? "none" : date === today ? "today" : todayLessons.some(lesson => !lesson.change?.cancelled) ? "finished" : todayLessons.length ? "cancelled" : "empty",
+    lessons: day?.lessons.map(lesson => ({ ...lesson, href: href(lesson), ended: lesson.date === today && lesson.end <= time })) ?? [],
+    nextHref: next ? href(next) : "/dashboard/schedule",
+  };
 }
 
 export function projectPair(pair: EffectivePair, visibleGroups?: string[], publicOnly = false): PublicLesson {

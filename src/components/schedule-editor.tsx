@@ -1,5 +1,7 @@
 "use client";
 
+import { presentAcademicText } from "@/lib/presentation-copy";
+
 import Link from "next/link";
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 import type { ScheduleEditorModel } from "@/lib/schedule-editor-repository";
@@ -33,7 +35,7 @@ function auditText(json: string | null) {
     const time = (number: number) => `${String(Math.floor(number / 60)).padStart(2, "0")}:${String(number % 60).padStart(2, "0")}`;
     const patterns: Record<string, string> = { EVERY: "Каждую неделю", NUMERATOR: "Числитель", DENOMINATOR: "Знаменатель" };
     const kinds: Record<string, string> = { LECTURE: "Лекция", PRACTICE: "Практика", SEMINAR: "Семинар", LAB: "Лабораторная" };
-    return `${row.lesson.discipline.title}; ${kinds[row.lesson.kind]}; ${row.date ? new Date(row.date).toLocaleDateString("ru-RU", { timeZone: "UTC" }) : dayNames[row.dayOfWeek - 1]}; ${time(row.startMinute)}–${time(row.endMinute)}; ${row.room.building.name}, ауд. ${row.room.number}; ${row.lesson.teachers.map((item: { teacher: { publicName: string | null; user: { name: string } } }) => item.teacher.publicName ?? item.teacher.user.name).join(", ")}; группы: ${row.lesson.groups.map((item: { group: { code: string } }) => item.group.code).join(", ")}; ${row.term.name}; ${patterns[row.weekPattern] ?? "Разово"}; ${row.isPublished ? "Опубликовано" : "Черновик"}${row.isCancelled ? "; отменено" : ""}${row.isDeleted || row.isActive === false ? "; запись отключена" : ""}`;
+    return `${row.lesson.discipline.title}; ${kinds[row.lesson.kind]}; ${row.date ? new Date(row.date).toLocaleDateString("ru-RU", { timeZone: "UTC" }) : dayNames[row.dayOfWeek - 1]}; ${time(row.startMinute)}–${time(row.endMinute)}; ${row.room.building.name}, ауд. ${row.room.number}; ${row.lesson.teachers.map((item: { teacher: { publicName: string | null; user: { name: string } } }) => item.teacher.publicName ?? item.teacher.user.name).join(", ")}; группы: ${row.lesson.groups.map((item: { group: { code: string } }) => item.group.code).join(", ")}; ${presentAcademicText(row.term.name)}; ${patterns[row.weekPattern] ?? "Разово"}; ${row.isPublished ? "Опубликовано" : "Черновик"}${row.isCancelled ? "; отменено" : ""}${row.isDeleted || row.isActive === false ? "; запись отключена" : ""}`;
   } catch { return "Данные сохранены в журнале"; }
 }
 export function ScheduleEditor({ model }: { model: ScheduleEditorModel }) {
@@ -79,7 +81,7 @@ function EditorForm({ model, target, onClose }: { model: ScheduleEditorModel; ta
   const values = exception ?? entry;
   const date = exception?.date ?? target.sourceDate ?? model.week;
   const confirmOnly = ["DELETE", "CANCEL", "RESTORE"].includes(target.mode);
-  return <section className="profile-panel editor-form-panel"><h2>{titles[target.mode]}</h2><p>{target.mode === "UPDATE" || target.mode === "DELETE" ? "Это изменение затронет регулярное расписание всех недель учебного периода." : "Это действие относится только к конкретной дате."}</p>
+  return <section className="profile-panel editor-form-panel"><h2>{titles[target.mode]}</h2><p>{["CREATE", "UPDATE", "DELETE"].includes(target.mode) ? "Это изменение затронет регулярное расписание всех недель учебного периода." : "Это действие относится только к конкретной дате."}</p>
       {state.message && !pending && <p role={state.success ? "status" : "alert"} className={state.success ? "editor-success" : "schedule-alert"}>{state.message}</p>}
       <form action={action} onReset={event => event.preventDefault()} key={`${target.mode}:${target.entryId}:${target.exceptionId}:${target.sourceDate}:${entry?.version}:${exception?.version}`}>
         <input type="hidden" name="operation" value={target.mode} /><input type="hidden" name="entryId" value={target.entryId ?? ""} /><input type="hidden" name="exceptionId" value={target.exceptionId ?? ""} /><input type="hidden" name="sourceDate" value={target.sourceDate ?? exception?.sourceDate ?? ""} /><input type="hidden" name="version" value={entry?.version ?? exception?.version ?? ""} />
@@ -88,7 +90,7 @@ function EditorForm({ model, target, onClose }: { model: ScheduleEditorModel; ta
           <SearchChecks label="Преподаватели" name="teacherIds" options={model.teachers.map(teacher => ({ id: teacher.id, name: teacher.name + (teacher.public ? "" : " · не опубликован") }))} initial={values?.teacherIds ?? []} />
           <SearchSelect label="Дисциплина" name="disciplineId" options={model.disciplines.map(item => ({ id: item.id, name: item.title }))} initial={values?.disciplineId} />
           <SearchSelect label="Корпус и аудитория" name="roomId" options={model.rooms.map(item => ({ id: item.id, name: item.name + (item.public ? "" : " · не опубликована") }))} initial={values?.roomId} />
-          <SearchSelect label="Учебный период" name="termId" options={model.terms.map(item => ({ id: item.id, name: `${item.name} (${item.startsOn} — ${item.endsOn})${item.published ? "" : " · не опубликован"}` }))} initial={values?.termId} />
+          <SearchSelect label="Учебный период" name="termId" options={model.terms.map(item => ({ id: item.id, name: `${presentAcademicText(item.name)} (${item.startsOn} — ${item.endsOn})${item.published ? "" : " · не опубликован"}` }))} initial={values?.termId} />
           <div className="editor-field"><label htmlFor="editor-kind">Тип занятия</label><select id="editor-kind" name="kind" defaultValue={values?.kind ?? "LECTURE"}><option value="LECTURE">Лекция</option><option value="PRACTICE">Практика</option><option value="SEMINAR">Семинар</option><option value="LAB">Лабораторная</option></select></div>
           {target.mode === "CREATE" || target.mode === "UPDATE" ? <><div className="editor-field"><label htmlFor="editor-weekday">День недели</label><select id="editor-weekday" name="dayOfWeek" defaultValue={values?.dayOfWeek ?? 1}>{dayNames.map((day, index) => <option key={day} value={index + 1}>{day}</option>)}</select></div><div className="editor-field"><label htmlFor="editor-pattern">Повторение</label><select id="editor-pattern" name="weekPattern" defaultValue={values?.weekPattern ?? "EVERY"}><option value="EVERY">Каждую неделю</option><option value="NUMERATOR">Числитель</option><option value="DENOMINATOR">Знаменатель</option></select></div></> : <ScheduleDatePicker selected={date} name="date" label="Дата разового занятия" onSelect={() => {}} />}
           <ScheduleTimeFields start={values?.start} end={values?.end} />

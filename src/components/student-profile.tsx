@@ -38,7 +38,7 @@ async function ProfileContent() {
           <img src="/api/student/profile/photo" alt={`Официальная фотография: ${displayName}`} width={144} height={192} />
         </> : <div className="student-portrait-placeholder" role="img" aria-label="Официальная фотография отсутствует"><span>{initials || "—"}</span><small>Фото отсутствует</small></div>}
       </div>
-      <div className="student-profile-identity"><span className="eyebrow">Университетский профиль</span><h2>{displayName}</h2><p className="student-group"><Icon name="cap" />{group ? `Группа ${group}` : "Учебная группа: не указано"}</p><span className={`student-status${p?.educationStatus === "STUDYING" ? " student-status-active" : ""}`}>Статус обучения: {status}</span><p className="student-official-note"><Icon name="shield" size={16} />Официальные данные университета · только просмотр</p></div>
+      <div className="student-profile-identity"><h2>{displayName}</h2><p className="student-group"><Icon name="cap" />{group ? `Группа ${group}` : "Учебная группа: не указано"}</p><span className={`student-status${p?.educationStatus === "STUDYING" ? " student-status-active" : ""}`}>Статус обучения: {status}</span><p className="student-official-note"><Icon name="shield" size={16} />Данные доступны только для просмотра</p></div>
     </section>
     <NotificationSettings />
     <div className="user-profile student-profile-grid">

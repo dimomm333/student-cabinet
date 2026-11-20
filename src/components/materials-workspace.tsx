@@ -1,4 +1,6 @@
 "use client";
+
+import { presentAcademicText } from "@/lib/presentation-copy";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -128,10 +130,10 @@ export function MaterialsWorkspace({ role }: { role: "STUDENT" | "TEACHER" }) {
     visited.add(id); return (f.parentId ? folderLabel(f.parentId, visited) + " / " : "") + f.name;
   }
   const folders = (data?.folders.filter(f => !category || f.category === category) ?? []).sort((a,b) => folderLabel(a.id).localeCompare(folderLabel(b.id), "ru"));
-  const terms = [...new Map(data?.courses.map(c => [c.termId, { id: c.termId, name: `${c.year} · ${c.term}`, starts: c.startsOn, ends: c.endsOn }]) ?? []).values()];
+  const terms = [...new Map(data?.courses.map(c => [c.termId, { id: c.termId, name: `${c.year} · ${presentAcademicText(c.term)}`, starts: c.startsOn, ends: c.endsOn }]) ?? []).values()];
   const defaultTerm = terms[0]?.id ?? "";
   return <div className="materials-workspace" data-query={queryKey}>
-    <div className="dashboard-title"><div><span className="eyebrow">Учёба · документы и ссылки</span><h1>Учебные материалы</h1><p>{teacher ? "Ваши дисциплины, черновики и публикации для групп." : "Материалы ваших дисциплин за текущий и прошлые семестры."}</p></div></div>
+    <div className="dashboard-title"><div><h1>Учебные материалы</h1><p>{teacher ? "Ваши дисциплины, черновики и публикации для групп." : "Материалы ваших дисциплин за текущий и прошлые семестры."}</p></div></div>
     {error && <div className="services-error" role="alert">{error} <button className="text-link" onClick={refresh}>Обновить список</button></div>}
     {message && <p className="materials-message" role="status">{message}</p>}
     {loading && <p role="status">Загружаем материалы…</p>}
@@ -141,7 +143,7 @@ export function MaterialsWorkspace({ role }: { role: "STUDENT" | "TEACHER" }) {
       <div className="materials-course-grid">{data.courses.filter(c => c.termId === (selectedTerm || defaultTerm)).map(c => <button key={c.termId + c.disciplineId} className="panel materials-course" onClick={() => navigate(c.termId, c.disciplineId)}><span className="icon-tile"><Icon name="folder" /></span><h2>{c.title}</h2><p>{c.teachers.join(", ") || "Преподаватель не назначен"}</p><span>{c.count} опубликованных материалов</span>{teacher && !c.editable && <small>Архив · только просмотр</small>}</button>)}</div>
     </>}
     {course && <>
-      <div className="materials-toolbar materials-course-nav"><button className="text-link" onClick={() => navigate(course.termId)}>← Все дисциплины</button><span>{course.year} · {course.term}</span><button className="text-link" disabled={busy} onClick={refresh}>Обновить</button></div>
+      <div className="materials-toolbar materials-course-nav"><button className="text-link" onClick={() => navigate(course.termId)}>← Все дисциплины</button><span>{course.year} · {presentAcademicText(course.term)}</span><button className="text-link" disabled={busy} onClick={refresh}>Обновить</button></div>
       <div className="materials-heading"><div><h2>{course.title}</h2><p>{course.teachers.join(", ")}</p></div>{canEdit && <button className="button button-primary" disabled={busy} onClick={() => openComposer()}>Добавить материалы</button>}</div>
       {teacher && !canEdit && <p className="materials-message">Назначение отозвано. Собственные материалы доступны для просмотра; изменение запрещено.</p>}
       {composer && editorScope === termId + ":" + disciplineId && canEdit && <section className="panel materials-composer" aria-label="Редактор материала">

@@ -16,12 +16,12 @@ export function NotificationSettings() {
       setMessage("Настройки сохранены."); window.dispatchEvent(new Event("notifications-updated"));
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  return <section className="panel notification-settings"><h2>Настройки уведомлений</h2><p>Обязательные академические, административные и важные системные события всегда поступают в ЛКС. Выбор категорий ниже относится к будущим необязательным событиям.</p>
+  return <section className="panel notification-settings"><h2>Настройки уведомлений</h2><p>Важные уведомления об учёбе и работе системы отключить нельзя. Выбор ниже применяется к новым необязательным уведомлениям.</p>
     {error && <p className="services-error" role="alert">{error}</p>}{message && <p className="services-success" role="status">{message}</p>}
     {!settings ? <p role="status">Загружаем настройки…</p> : <>
       <fieldset><legend>Необязательные уведомления в ЛКС</legend>{allNotificationCategories.map(c => <label key={c}><input type="checkbox" checked={settings.optionalCategories.includes(c)} onChange={e => toggle("optionalCategories", c, e.target.checked)} />{notificationCategories[c]}</label>)}</fieldset>
       <h3>Дублирование по электронной почте</h3><p>{settings.emailReason}</p><p>Университетская почта пока не подключена. В письмах передаётся только сообщение об обновлении и ссылка в защищённый кабинет.</p>
-      <label><input type="checkbox" checked={settings.personalEmail} onChange={e => setSettings({ ...settings, personalEmail: e.target.checked })} />Дублировать на подтверждённый email учётной записи</label>
+      <label><input type="checkbox" checked={settings.personalEmail} onChange={e => setSettings({ ...settings, personalEmail: e.target.checked })} />Дублировать на подтверждённую почту учётной записи</label>
       <fieldset><legend>Категории писем</legend>{allNotificationCategories.map(c => <label key={c}><input type="checkbox" checked={settings.emailCategories.includes(c)} onChange={e => toggle("emailCategories", c, e.target.checked)} />{notificationCategories[c]}</label>)}</fieldset>
       <button className="button button-primary" disabled={busy} onClick={() => void save()}>Сохранить настройки уведомлений</button>
     </>}

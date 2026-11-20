@@ -17,9 +17,7 @@ async function LoginContent() {
   return <main className="login-page">
     <div className="login-heading"><Brand /><ThemeToggle /></div>
     <section className="login-card panel">
-      <span className="eyebrow">Единая учётная запись</span>
-      <h1>Рады видеть тебя</h1>
-      <p>Вход для студентов, преподавателей, технического персонала и администраторов.</p>
+      <h1>Вход в личный кабинет</h1>
       <LoginForm />
       <p className="login-help">Учётную запись предоставляет университет. Если вы забыли пароль, обратитесь к администратору.</p>
     </section>

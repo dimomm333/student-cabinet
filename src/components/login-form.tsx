@@ -40,7 +40,7 @@ export function LoginForm() {
   }
 
   return <form onSubmit={login} className="login-form" aria-busy={pending}>
-    <label htmlFor="email">Университетский email</label>
+    <label htmlFor="email">Университетская почта</label>
     <input id="email" name="email" type="email" autoComplete="username" required maxLength={254} autoCapitalize="none" spellCheck={false} />
     <label htmlFor="password">Пароль</label>
     <input id="password" name="password" type="password" autoComplete="current-password" required maxLength={128} aria-describedby={error ? "login-error" : undefined} />

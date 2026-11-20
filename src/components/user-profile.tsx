@@ -46,7 +46,7 @@ async function ProfileContent({ role }: { role: Exclude<Role, "STUDENT"> }) {
       ]} />
       {!!details.length && <ProfileFields title="Работа в университете" fields={details} />}
     </div>
-    <p className="profile-note">Данные учётной записи доступны только для просмотра. Для уточнения данных обратитесь к ответственному сотруднику университета.</p>
+    <p className="profile-note">Чтобы исправить данные, обратитесь к ответственному сотруднику университета.</p>
     <Link href={roleHomes[role]} className="button button-primary">На главную кабинета</Link>
   </>;
 }

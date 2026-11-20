@@ -25,17 +25,15 @@ export default async function SectionPage({ params }: { params: Promise<{ sectio
         <div>
           <span className="eyebrow">{section.group}</span>
           <h1>{section.title}</h1>
-          <p>Твоё пространство для учёбы и университетской жизни.</p>
         </div>
       </div>
       <section className="placeholder-panel">
         <span className="placeholder-icon"><Icon name={section.icon} size={38} /></span>
-        <span className="demo-badge">Скоро в кабинете</span>
-        <h2>Здесь будет раздел «{section.title}»</h2>
+        <h2>Раздел пока недоступен</h2>
         <p>{section.description}</p>
         <div className="placeholder-note">
           <Icon name="help" size={18} />
-          <p>Сейчас доступна визуальная демоверсия. Этот раздел будет реализован на следующих этапах. Все данные в кабинете вымышлены.</p>
+          <p>Раздел в разработке. Его функции пока недоступны.</p>
         </div>
         <Link href="/dashboard" className="button button-primary">
           На главную кабинета <Icon name="arrow" />

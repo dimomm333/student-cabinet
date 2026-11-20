@@ -11,12 +11,12 @@ export type ServiceConfig = { code: string; version: number; title: string; cate
 const text = (key: string, label: string, required = true): Field => ({ key, label, type: "text", required, max: 2000 });
 const date = (key: string, label: string): Field => ({ key, label, type: "date", required: true });
 const choice = (key: string, label: string, options: string[]): Field => ({ key, label, type: "choice", options, required: true });
-const reason = text("reason", "Основание / причина (демонстрационный перечень)");
+const reason = text("reason", "Основание или причина");
 const period = [date("startsOn", "Начало периода"), date("endsOn", "Конец периода")];
-const proof: DocumentSlot = { key: "proof", label: "Подтверждающий документ (демонстрационное требование)", required: true };
+const proof: DocumentSlot = { key: "proof", label: "Подтверждающий документ", required: true };
 const receive = choice("delivery", "Способ получения", ["Лично", "Электронная копия"]);
 function service(code: string, title: string, category: Category | null, fields: Field[], documents: DocumentSlot[], synonyms: string[], extra: Partial<ServiceConfig> = {}): ServiceConfig {
-  return { code, version: 1, title, category, description: `Демонстрационная услуга: ${title.toLocaleLowerCase("ru")}. Условия и приложения требуют утверждения университетом.`, synonyms, fields, documents, profile: ["name", "group"], resultDocument: false, processing: category === "FINANCE" ? "Уполномоченный финансовый обработчик" : category === "PERSONAL" ? "Уполномоченный обработчик персональных документов" : "Деканат", ...extra };
+  return { code, version: 1, title, category, description: "Условия оказания услуги и перечень приложений требуют утверждения университетом.", synonyms, fields, documents, profile: ["name", "group"], resultDocument: false, processing: category === "FINANCE" ? "Уполномоченный финансовый обработчик" : category === "PERSONAL" ? "Уполномоченный обработчик персональных документов" : "Деканат", ...extra };
 }
 export const serviceCatalog: readonly ServiceConfig[] = [
   service("study-certificate", "Справка об обучении", "DOCUMENTS", [text("purpose", "Назначение справки"), { key: "copies", label: "Количество экземпляров", type: "integer", required: true, max: 10 }, receive], [], ["учусь", "подтверждение обучения", "справка студент", "место требования"], { resultDocument: true, profile: ["name", "group", "studentNumber", "program"] }),
@@ -30,7 +30,7 @@ export const serviceCatalog: readonly ServiceConfig[] = [
   service("academic-leave", "Академический отпуск", "ACADEMIC", [reason, ...period], [proof], ["академ", "приостановить обучение"]),
   service("group-transfer", "Перевод в другую учебную группу", "ACADEMIC", [text("targetGroup", "Желаемая группа"), reason], [], ["смена группы", "перевестись"]),
   service("individual-plan", "Индивидуальный учебный план", "ACADEMIC", [text("term", "Учебный период"), reason, text("requestedPlan", "Предлагаемый план")], [{ ...proof, required: false }], ["иуп", "индивидуальный график"]),
-  service("withdrawal", "Отчисление по собственному желанию", "ACADEMIC", [reason, date("requestedOn", "Предполагаемая дата"), text("documentDelivery", "Получение документов")], [{ key: "statement", label: "Заявление (демонстрационное требование)", required: true }], ["уйти", "забрать документы", "отчислиться"]),
+  service("withdrawal", "Отчисление по собственному желанию", "ACADEMIC", [reason, date("requestedOn", "Предполагаемая дата"), text("documentDelivery", "Получение документов")], [{ key: "statement", label: "Заявление", required: true }], ["уйти", "забрать документы", "отчислиться"]),
   service("personal-change", "Изменение персональных данных", "PERSONAL", [choice("dataType", "Изменяемые сведения", ["ФИО", "Гражданство", "Иные официальные сведения"]), text("currentValue", "Текущие сведения", false), text("proposedValue", "Предлагаемые изменения")], [proof], ["фамилия", "смена имени", "ошибка профиль", "паспорт"]),
   service("military-change", "Изменение сведений воинского учёта", "PERSONAL", [text("registrationStatus", "Предлагаемые сведения об учёте"), text("office", "Военкомат"), text("documentType", "Вид документа"), text("documentNumber", "Реквизиты подтверждения")], [proof], ["военкомат", "военный билет", "приписное"], { profile: ["name", "group", "military"] }),
   service("pass-reissue", "Перевыпуск студенческого пропуска", "PERSONAL", [reason, choice("photo", "Фотография", ["KEEP", "NEW"])], [{ key: "photo", label: "Новая фотография", required: true, when: { field: "photo", value: "NEW" } }], ["потерял пропуск", "карта", "фото", "пропуск сломан"]),

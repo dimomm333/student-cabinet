@@ -1,6 +1,8 @@
+import { workTitle } from "./brs-work-labels";
+import { presentAcademicText } from "@/lib/presentation-copy";
 import type { BrsWorkspace } from "@/lib/brs-repository";
 import type { BrsCalculation } from "@/lib/brs-rules";
-import { points, resultPoints, workStatus, workTitle } from "@/lib/brs-rules";
+import { points, resultPoints, workStatus } from "@/lib/brs-rules";
 
 type Plan = NonNullable<BrsWorkspace["selected"]>;
 type Student = Plan["students"][number];
@@ -9,7 +11,7 @@ type Module = Plan["modules"][number];
 export function AcademicIssues({ issues }: { issues: BrsCalculation["issues"] }) {
   return <>{([['DEBT','Задолженности'],['WAITING','Ожидается оценивание'],['UPCOMING','Предстоящие работы']] as const).map(([category,title]) => {
     const rows = issues.filter(issue => issue.category === category);
-    return !!rows.length && <section key={category} className={`brs-issues brs-issues-${category.toLowerCase()}`}><h4>{title}</h4><ul>{rows.map(issue => <li key={issue.id}><strong>{issue.title}</strong> — {issue.reason.toLowerCase()}</li>)}</ul></section>;
+    return !!rows.length && <section key={category} className={`brs-issues brs-issues-${category.toLowerCase()}`}><h4>{title}</h4><ul>{rows.map(issue => <li key={issue.id}><strong>{presentAcademicText(issue.title)}</strong> — {issue.reason.toLowerCase()}</li>)}</ul></section>;
   })}</>;
 }
 export function OfficialResult({ official }: { official: { valid: boolean; grade: string; rating: number; status: string } | null }) {
@@ -26,5 +28,5 @@ export function ModuleDetails({ plan, student, brsModule }: { plan: Plan; studen
 }
 export function WorkDetails({ plan, student, event, brsModule }: { plan: Plan; student: Student; event: Work; brsModule?: Module }) {
   const result = student.results.find(item => item.eventId === event.id && !item.deleted), control = ["INTERIM", "FINAL"].includes(event.kind), condition = student.calculation.workStates[event.id];
-  return <><p className="brs-detail-course">{plan.discipline.title}</p><section className="brs-detail-section"><h3>{control ? `Рубежный контроль №${event.controlNumber}` : "Результат работы"}</h3><p className="brs-detail-score">Результат: {resultPoints(result, event.maxScore)}/{points(event.maxScore)}</p><p>Состояние сдачи: {workStatus(event, result)}</p>{condition && <p className={`brs-work-condition brs-condition-${condition.coveredByAttempt || condition.category === "DEBT" ? "waiting" : condition.category.toLowerCase()}`}>{condition.coveredByAttempt ? "Исходный РК заменён сессионным результатом в расчёте" : condition.reason}</p>}{result?.primaryMax != null && <p>Первичные баллы: {points(result.primaryScore)}/{points(result.primaryMax)}</p>}<div className="brs-comment"><p>{result?.comment ? `Комментарий преподавателя:\n${result.comment}` : "Комментарий отсутствует"}</p></div></section>{event.kind === "FINAL" && brsModule ? <ModuleDetails plan={plan} student={student} brsModule={brsModule} /> : null}</>;
+  return <><p className="brs-detail-course">{plan.discipline.title}</p><section className="brs-detail-section"><h3>{control ? `Рубежный контроль №${event.controlNumber}` : "Результат работы"}</h3><p className="brs-detail-score">Результат: {resultPoints(result, event.maxScore)}/{points(event.maxScore)}</p><p>Состояние сдачи: {workStatus(event, result)}</p>{condition && <p className={`brs-work-condition brs-condition-${condition.coveredByAttempt || condition.category === "DEBT" ? "waiting" : condition.category.toLowerCase()}`}>{condition.coveredByAttempt ? "Исходный РК заменён сессионным результатом в расчёте" : condition.reason}</p>}{result?.primaryMax != null && <p>Первичные баллы: {points(result.primaryScore)}/{points(result.primaryMax)}</p>}<div className="brs-comment"><p>{result?.comment ? `Комментарий преподавателя:\n${presentAcademicText(result.comment)}` : "Комментарий отсутствует"}</p></div></section>{event.kind === "FINAL" && brsModule ? <ModuleDetails plan={plan} student={student} brsModule={brsModule} /> : null}</>;
 }

@@ -4,7 +4,7 @@ import type { Role } from "@/generated/prisma/enums";
 export type WorkspaceRole = Exclude<Role, "STUDENT">;
 export type WorkspaceSection = { slug: string; title: string; icon: IconName; description: string };
 const profileSection: WorkspaceSection = { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные и сведения об учётной записи." };
-const notificationsSection: WorkspaceSection = { slug: "notifications", title: "Уведомления", icon: "bell", description: "События личного кабинета и прочитанность." };
+const notificationsSection: WorkspaceSection = { slug: "notifications", title: "Уведомления", icon: "bell", description: "Уведомления об учёбе и работе университета." };
 
 export const workspaces: Record<WorkspaceRole, { title: string; description: string; sections: WorkspaceSection[] }> = {
   DEANERY_STAFF: {
@@ -30,13 +30,13 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       notificationsSection,
       profileSection,
       { slug: "schedule", title: "Расписание", icon: "calendar", description: "Ваши занятия по всем группам, время, аудитории и корпуса." },
-      { slug: "disciplines", title: "Дисциплины и группы", icon: "book", description: "Здесь будут закреплённые дисциплины и учебные группы." },
-      { slug: "students", title: "Студенты", icon: "user", description: "Здесь появятся студенты закреплённых учебных групп." },
+      { slug: "disciplines", title: "Дисциплины и группы", icon: "book", description: "Закреплённые дисциплины и учебные группы." },
+      { slug: "students", title: "Студенты", icon: "user", description: "Студенты закреплённых учебных групп." },
       { slug: "grades", title: "Журнал оценок", icon: "chart", description: "Модульный журнал баллов и посещаемости." },
       { slug: "session", title: "Сессия", icon: "book", description: "Допуски, экзаменационные попытки и фиксация итогов." },
       { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Документы, ссылки, папки и публикации для ваших групп." },
-      { slug: "consultations", title: "Консультации", icon: "clock", description: "Здесь появятся консультации и запись на них." },
-      { slug: "announcements", title: "Объявления", icon: "news", description: "Здесь можно будет публиковать объявления для групп." },
+      { slug: "consultations", title: "Консультации", icon: "clock", description: "Консультации и запись на них." },
+      { slug: "announcements", title: "Объявления", icon: "news", description: "Объявления для учебных групп." },
     ],
   },
   TECHNICAL_STAFF: {
@@ -44,11 +44,11 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
     description: "Пространство для поддержки оборудования и инфраструктуры кампуса.",
     sections: [
       profileSection,
-      { slug: "requests", title: "Технические заявки", icon: "clipboard", description: "Здесь появятся технические обращения и их обработка." },
-      { slug: "services", title: "Заявления студентов", icon: "folder", description: "Обработка электронных услуг по явным назначениям." },
-      { slug: "equipment", title: "Оборудование", icon: "grid", description: "Здесь будет учёт оборудования университета." },
-      { slug: "rooms", title: "Аудитории", icon: "pin", description: "Здесь появится информация об аудиториях и оснащении." },
-      { slug: "tasks", title: "Задачи", icon: "check", description: "Здесь будут рабочие задачи технической службы." },
+      { slug: "requests", title: "Технические заявки", icon: "clipboard", description: "Технические обращения и их обработка." },
+      { slug: "services", title: "Заявления студентов", icon: "folder", description: "Заявления по назначенным услугам." },
+      { slug: "equipment", title: "Оборудование", icon: "grid", description: "Учёт оборудования университета." },
+      { slug: "rooms", title: "Аудитории", icon: "pin", description: "Аудитории и их оснащение." },
+      { slug: "tasks", title: "Задачи", icon: "check", description: "Рабочие задачи технической службы." },
       notificationsSection,
     ],
   },
@@ -58,11 +58,11 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
     sections: [
       notificationsSection,
       profileSection,
-      { slug: "users", title: "Пользователи", icon: "user", description: "Здесь будет управление учётными записями и ролями." },
+      { slug: "users", title: "Пользователи", icon: "user", description: "Учётные записи и роли пользователей." },
       { slug: "news", title: "Новости", icon: "news", description: "Публикация объявлений для всех студентов или подразделения." },
       { slug: "requests", title: "Заявки студентов", icon: "clipboard", description: "Заявления и документы, доступные по явным полномочиям." },
-      { slug: "academic", title: "Учебные данные", icon: "book", description: "Здесь появится управление структурой учебных данных." },
-      { slug: "settings", title: "Настройки", icon: "shield", description: "Здесь будут настройки университетской системы." },
+      { slug: "academic", title: "Учебные данные", icon: "book", description: "Структура учебных данных." },
+      { slug: "settings", title: "Настройки", icon: "shield", description: "Настройки университетской системы." },
     ],
   },
 };

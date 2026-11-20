@@ -5,12 +5,12 @@ import { requireRole } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import CabinetPageLoading from "@/components/cabinet-page-loading";
 import { NewsNotices } from "@/components/news-notices";
+import { studentNewsScope } from "@/lib/news-repository";
 export const metadata = { title: "Новости и объявления" };
 async function Content({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireRole("STUDENT"), { id } = await searchParams;
   if (id !== undefined && (typeof id !== "string" || id.length > 128)) notFound();
-  const profile = await prisma.studentProfile.findUnique({ where: { userId: user.id }, select: { group: { select: { departmentId: true } } } });
-  const scope = { publishedAt: { lte: new Date() }, OR: [{ departmentId: null }, { departmentId: profile?.group?.departmentId ?? "" }] };
+  const scope = await studentNewsScope(prisma, user.id);
   if (!id) {
     const items = await prisma.news.findMany({ where: scope, orderBy: [{ publishedAt: "desc" }, { id: "desc" }], take: 50 });
     return <><div className="dashboard-title"><div><h1>Новости и объявления</h1><p>Публикации университета и вашего подразделения.</p></div></div>{items.length ? <NewsNotices items={items} /> : <section className="panel notification-settings">Опубликованных объявлений пока нет.</section>}</>;

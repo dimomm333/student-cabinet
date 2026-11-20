@@ -21,13 +21,17 @@ import { navigationPdf, actionPdf } from './service-pdf-fixtures.mjs';
 mkdirSync('.local', { recursive: true });
 const root = mkdtempSync(resolve('.local/services-ui-')), source = createClient({ url: getDatabaseUrl() }), before = await fingerprint(source);
 const env = provisionTestDatabase(resolve(root, 'test.db')); process.env.DATABASE_URL = env.DATABASE_URL;
+// Browser/server and fixture writer use separate connections to this test DB.
+// Match the navigation fixture: readers must not block conflict injection.
+const fixtureJournal = createClient({ url: env.DATABASE_URL });
+await fixtureJournal.execute('PRAGMA journal_mode = WAL'); fixtureJournal.close();
 const db = createPrismaClient(), password = randomBytes(24).toString('base64url'), results = [], diagnostics = [];
 let browser, child;
 const pass = name => { results.push(name); console.info('PASS: ' + name); };
 const escaped = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 async function waitDetail(page) { await expect(page.locator('.services-request-heading h2')).toBeVisible(); await expect(page.locator('.services-detail')).toHaveAttribute('aria-busy', 'false'); }
 async function field(page, label, value) { await page.getByLabel(new RegExp('^' + escaped(label))).first().fill(value); }
-async function saved(page, label = 'Сохранить изменения') { await page.getByRole('button', { name: label, exact: true }).click(); await expect(page.locator('.services-success')).toBeVisible(); }
+async function saved(page, label = 'Сохранить изменения') { await page.getByRole('button', { name: label, exact: true }).click(); await expect(page.locator('.services-success')).toBeVisible(); await expect(page.locator('.services-detail')).toHaveAttribute('aria-busy', 'false'); await page.waitForLoadState('networkidle'); }
 async function noOverflow(page) { assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Page overflow'); }
 try {
   await seedServices(db);
@@ -67,7 +71,7 @@ try {
   await page.locator('.services-category a').click();
   await page.getByRole('button', { name: 'Создать черновик' }).click(); await waitDetail(page);
   let id = new URL(page.url()).searchParams.get('requestId'); assert(id);
-  await field(page, 'Основание / причина', 'Непредвиденные расходы'); await field(page, 'Обстоятельства', 'Подтверждающий документ приложен');
+  await field(page, 'Основание или причина', 'Непредвиденные расходы'); await field(page, 'Обстоятельства', 'Подтверждающий документ приложен');
   await expect(page.locator('.services-autosave')).toContainText('Сохранено');
   await page.reload(); await waitDetail(page);
   await expect(page.getByLabel(/^Обстоятельства/)).toHaveValue('Подтверждающий документ приложен');
@@ -78,10 +82,10 @@ try {
   await expect(page.locator('.services-file').filter({ hasText: 'proof.png' })).toContainText('КБ');
   await expect(page.locator('.services-file').filter({ hasText: 'proof.png' }).getByRole('button', { name: 'Удалить / заменить' })).toBeVisible();
   await saved(page); await page.reload(); await waitDetail(page);
-  await expect(page.getByLabel(/^Основание \/ причина/).first()).toHaveValue('Непредвиденные расходы');
+  await expect(page.getByLabel(/^Основание или причина/).first()).toHaveValue('Непредвиденные расходы');
   const otherDevice = await signed(student.email, { width: 360, height: 800 });
   await otherDevice.page.goto(base + '/dashboard/services?requestId=' + id); await waitDetail(otherDevice.page);
-  await expect(otherDevice.page.getByLabel(/^Основание \/ причина/).first()).toHaveValue('Непредвиденные расходы'); await noOverflow(otherDevice.page);
+  await expect(otherDevice.page.getByLabel(/^Основание или причина/).first()).toHaveValue('Непредвиденные расходы'); await noOverflow(otherDevice.page);
   await otherDevice.page.screenshot({ path: resolve(root, 'draft-360.png'), fullPage: true });
   await page.getByLabel('Подтверждаю актуальность показанных официальных данных').check();
   await page.getByRole('button', { name: 'Отправить заявление', exact: true }).dblclick();
@@ -98,7 +102,7 @@ try {
   await staff.getByLabel('Что необходимо уточнить').fill('Уточните обстоятельства и замените скан.'); await saved(staff, 'Применить решение');
   await page.getByRole('button', { name: 'Обновить данные', exact: true }).click();
   await expect(page.locator('.services-notice')).toContainText('Уточните обстоятельства');
-  assert.equal(await page.getByLabel(/^Основание \/ причина/).count(), 0);
+  assert.equal(await page.getByLabel(/^Основание или причина/).count(), 0);
   await field(page, 'Обстоятельства', 'Уточнённые сведения студента');
   await page.getByRole('button', { name: 'Удалить / заменить' }).click(); await expect(page.locator('.services-success')).toContainText('снято');
   await page.getByLabel(/^Загрузить:/).setInputFiles({ name: 'updated.png', mimeType: 'image/png', buffer: png }); await expect(page.locator('.services-success')).toContainText('загружен');

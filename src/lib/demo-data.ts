@@ -2,18 +2,18 @@ import type { IconName } from "@/components/icon";
 
 export const sections: { slug: string; title: string; icon: IconName; description: string; group: string }[] = [
   { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные студента и сведения об обучении.", group: "Учёба" },
-  { slug: "schedule", title: "Моё расписание", icon: "calendar", description: "Здесь появится полное расписание занятий с выбором недели, аудиториями и преподавателями.", group: "Учёба" },
+  { slug: "schedule", title: "Моё расписание", icon: "calendar", description: "Занятия, аудитории и преподаватели.", group: "Учёба" },
   { slug: "session", title: "Сессия", icon: "book", description: "Допуски, экзаменационные попытки, предварительные и утверждённые результаты БРС.", group: "Учёба" },
   { slug: "grades", title: "Успеваемость", icon: "chart", description: "Модули, ДЗ, лабораторные, рубежные контроли, посещаемость и баллы.", group: "Учёба" },
   { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Лекции, задания и опубликованные материалы ваших дисциплин.", group: "Учёба" },
-  { slug: "services", title: "Услуги", icon: "grid", description: "Здесь можно будет заказать справку и обратиться в университетские службы.", group: "Кампус" },
-  { slug: "notifications", title: "Уведомления", icon: "bell", description: "Здесь появится история уведомлений об учёбе и событиях университета.", group: "Кампус" },
-  { slug: "news", title: "Новости", icon: "news", description: "Здесь будет полная лента новостей, анонсов и событий студенческой жизни.", group: "Кампус" },
-  { slug: "clearance", title: "Обходной лист", icon: "clipboard", description: "Здесь можно будет отслеживать согласование обходного листа в подразделениях университета.", group: "Кампус" },
-  { slug: "useful", title: "Полезное", icon: "spark", description: "Здесь будут ответы на частые вопросы, контакты служб и памятки для студентов.", group: "Кампус" },
-  { slug: "sports", title: "Физкультура", icon: "sport", description: "Здесь появятся спортивные секции, расписание тренировок и учёт посещений.", group: "Кампус" },
-  { slug: "portfolio", title: "Портфолио", icon: "briefcase", description: "Здесь можно будет собрать проекты, достижения и участие в университетских мероприятиях.", group: "Кампус" },
-  { slug: "mail", title: "Почта", icon: "mail", description: "Здесь появится доступ к университетской почте и учебной переписке.", group: "Кампус" },
+  { slug: "services", title: "Услуги", icon: "grid", description: "Справки, заявления и обращения в службы университета.", group: "Кампус" },
+  { slug: "notifications", title: "Уведомления", icon: "bell", description: "Уведомления об учёбе и событиях университета.", group: "Кампус" },
+  { slug: "news", title: "Новости", icon: "news", description: "Новости и объявления университета.", group: "Кампус" },
+  { slug: "clearance", title: "Обходной лист", icon: "clipboard", description: "Согласование обходного листа в подразделениях университета.", group: "Кампус" },
+  { slug: "useful", title: "Полезное", icon: "spark", description: "Ответы на частые вопросы, контакты служб и памятки.", group: "Кампус" },
+  { slug: "sports", title: "Физкультура", icon: "sport", description: "Спортивные секции, тренировки и посещаемость.", group: "Кампус" },
+  { slug: "portfolio", title: "Портфолио", icon: "briefcase", description: "Проекты, достижения и участие в мероприятиях.", group: "Кампус" },
+  { slug: "mail", title: "Почта", icon: "mail", description: "Университетская почта и учебная переписка.", group: "Кампус" },
 ];
 
 export const news = [

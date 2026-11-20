@@ -120,7 +120,6 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
             </div>
           </div>
           <div className="header-actions">
-            <span className="demo-badge"><span className="status-dot" /> Деморежим</span>
             <ThemeToggle />
             <NotificationBell href="/dashboard/notifications" />
             <ProfileLink name={name} role="STUDENT" />
@@ -128,10 +127,10 @@ export function DashboardShell({ children, name }: { children: React.ReactNode; 
           </div>
         </AutoHideHeader>
         <main id="dashboard-main" className="dashboard-main">{children}</main>
-        <footer className="dashboard-footer">
-          <span>Сделано для твоего учебного дня</span>
-          <span>Демонстрационный прототип · Все данные вымышлены</span>
-        </footer>
+        {pathname !== "/dashboard" && <footer className="dashboard-footer">
+          <span>Северный университет</span>
+          <span>Личный кабинет студента</span>
+        </footer>}
       </div>
     </div>
   );

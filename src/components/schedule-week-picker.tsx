@@ -1,5 +1,7 @@
 "use client";
 
+import { presentAcademicText } from "@/lib/presentation-copy";
+
 import { useRouter } from "next/navigation";
 import { academicWeeks, DAY_MS, isoDate, mondayOf, scheduleHref, weekRangeLabel } from "@/lib/schedule-calendar";
 import type { ScheduleModel } from "@/lib/schedule-repository";
@@ -14,7 +16,7 @@ export function ScheduleWeekPicker({ path, query, terms }: { path: string; query
   return <div className="schedule-week-picker">
     <label>Учебная неделя<select aria-label="Номер учебной недели" value={active ? `${active.term.code}:${active.number}` : ""} onChange={event => { const option = options.find(option => `${option.term.code}:${option.number}` === event.target.value); if (option) navigate(option.start, option.term.code); }}>
       <option value="" disabled>{terms.length ? "Вне учебного периода" : "Нет учебных периодов"}</option>
-      {terms.map(term => <optgroup label={`${term.name} (${term.startsOn} — ${term.endsOn})`} key={term.code}>{options.filter(o => o.term.code === term.code).map(option => <option key={option.number} value={`${term.code}:${option.number}`}>Неделя №{option.number} · {weekRangeLabel(option.start, option.end)}</option>)}</optgroup>)}
+      {terms.map(term => <optgroup label={`${presentAcademicText(term.name)} (${term.startsOn} — ${term.endsOn})`} key={term.code}>{options.filter(o => o.term.code === term.code).map(option => <option key={option.number} value={`${term.code}:${option.number}`}>Неделя №{option.number} · {weekRangeLabel(option.start, option.end)}</option>)}</optgroup>)}
     </select></label>
     <ScheduleDatePicker selected={selected} onSelect={date => router.push(scheduleHref(path, query, { week: isoDate(mondayOf(date)), day: String((date.getUTCDay() + 6) % 7 + 1), term: "" }), { scroll: false })} />
   </div>;
