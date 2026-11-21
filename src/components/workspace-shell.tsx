@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, type ReactNode } from "react";
 import { roleHomes, roleLabels } from "@/lib/roles";
-import { workspaces, type WorkspaceRole } from "@/lib/workspaces";
+import { passSection, workspaces, type WorkspaceRole } from "@/lib/workspaces";
 import { Brand } from "./brand";
 import { Icon } from "./icon";
 import { LogoutButton } from "./auth-controls";
@@ -14,15 +14,16 @@ import { NotificationBadge } from "./notifications-provider";
 import { ThemeToggle } from "./theme-toggle";
 import { AutoHideHeader } from "./auto-hide-header";
 
-export function WorkspaceShell({ role, name, children }: { role: WorkspaceRole; name: string; children: ReactNode }) {
+export function WorkspaceShell({ role, name, children, showPasses }: { role: WorkspaceRole; name: string; children: ReactNode; showPasses: boolean }) {
   const pathname = usePathname();
   const menu = useRef<HTMLDialogElement>(null);
   const workspace = workspaces[role];
   const home = roleHomes[role];
-  const current = workspace.sections.find((item) => pathname === `${home}/${item.slug}`);
+  const sections = showPasses ? [passSection, ...workspace.sections] : workspace.sections;
+  const current = sections.find((item) => pathname === `${home}/${item.slug}`);
   const close = () => menu.current?.close();
   const navigation = <nav className="sidebar-nav" aria-label={workspace.title}>
-    {[{ slug: "", title: "Главная", icon: "home" as const }, ...workspace.sections].map((item) => {
+    {[{ slug: "", title: "Главная", icon: "home" as const }, ...sections].map((item) => {
       const href = home + (item.slug ? `/${item.slug}` : "");
       return <Link key={href} href={href} onClick={close} className={"nav-item" + (pathname === href ? " active" : "")} aria-current={pathname === href ? "page" : undefined}>
         <Icon name={item.icon} /><span>{item.title}</span>{item.slug === "notifications" && <NotificationBadge />}

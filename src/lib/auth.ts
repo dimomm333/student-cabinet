@@ -1,7 +1,9 @@
 import "server-only";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware, getAuthoritativeSessionFromCtx } from "better-auth/api";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, passwordPolicyMessages } from "./password-policy";
+import { newPasswordError } from "./password-strength";
 import { prisma } from "./prisma";
 import { authProxySettings, VERIFIED_IP_HEADER } from "./auth-transport";
 import { absoluteSessionExpiry, isSessionWithinLifetime, MAX_SESSION_AGE_MS } from "./session-policy";
@@ -39,8 +41,8 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     disableSignUp: true,
-    minPasswordLength: 12,
-    maxPasswordLength: 128,
+    minPasswordLength: PASSWORD_MIN_LENGTH,
+    maxPasswordLength: PASSWORD_MAX_LENGTH,
   },
   user: {
     additionalFields: {
@@ -60,12 +62,16 @@ export const auth = betterAuth({
     window: 60,
     max: 100,
     // This coarse IP/shared budget complements the independent account limiter.
-    customRules: { "/sign-in/email": { window: 60, max: 60 } },
+    customRules: { "/sign-in/email": { window: 60, max: 60 }, "/change-password": { window: 60, max: 5 } },
   },
   databaseHooks: {
     session: {
       create: {
-        before: async (session) => {
+        before: async (session, context) => {
+          // Better Auth rotates the current cookie when revoking other sessions.
+          // Carry the original absolute deadline across that rotation (SEC-02).
+          const original = context?.path === "/change-password" ? context.context.session?.session : null;
+          if (original) return { data: { ...session, createdAt: new Date(original.createdAt), expiresAt: new Date(Math.min(new Date(original.expiresAt).getTime(), absoluteSessionExpiry(original.createdAt).getTime())) } };
           const createdAt = new Date();
           return { data: { ...session, createdAt, expiresAt: new Date(Math.min(new Date(session.expiresAt).getTime(), createdAt.getTime() + MAX_SESSION_AGE_MS)) } };
         },
@@ -88,6 +94,22 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/change-password") {
+        const session = await getAuthoritativeSessionFromCtx(ctx);
+        if (!session || !isSessionWithinLifetime(session.session)) throw new APIError("UNAUTHORIZED", { code: "UNAUTHORIZED", message: "Требуется вход." });
+        if (ctx.body?.currentPassword === ctx.body?.newPassword) throw new APIError("BAD_REQUEST", { code: "PASSWORD_UNCHANGED", message: "Новый пароль должен отличаться от текущего." });
+        ctx.body.revokeOtherSessions = true;
+      }
+      // Better Auth 1.7.22 dispatches both HTTP and auth.api through this hook.
+      // setPassword is server-only/pathless; better-call normalizes its hook
+      // path to "/". It also takes body.newPassword.
+      // Login uses body.password and must never be subject to the new policy.
+      const candidate = ctx.path === "/sign-up/email" ? ctx.body?.password
+        : ctx.path === "/change-password" || ctx.path === "/reset-password" || ctx.path === "/" ? ctx.body?.newPassword : undefined;
+      if (typeof candidate === "string") {
+        const code = newPasswordError(candidate);
+        if (code) throw new APIError("BAD_REQUEST", { code, message: passwordPolicyMessages[code] });
+      }
       if (ctx.path !== "/sign-in/email") return;
       const email = normalizeLoginEmail(ctx.body?.email);
       if (!email) return;

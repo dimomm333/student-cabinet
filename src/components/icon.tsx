@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  qr: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h4v4h-4m-3-1v1m7-8v1",
   monitor: "M3 4h18v13H3zM8 21h8m-4-4v4",
   moon: "M20.8 13.1A9 9 0 0 1 10.9 3.2a9 9 0 1 0 9.9 9.9Z",
   sun: "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
@@ -11,6 +12,7 @@ const paths = {
   book: "M3 4h6a4 4 0 0 1 3 2 4 4 0 0 1 3-2h6v15h-6a4 4 0 0 0-3 2 4 4 0 0 0-3-2H3zM12 6v15",
   chart: "M4 3v18h17M8 16v-4m5 4V8m5 8V5",
   folder: "M3 7V4h6l2 3h10v13H3z",
+  settings: "M9.5 3h5l.5 2.2 1.8 1 2.2-.7 2.5 4.3-1.7 1.5v2l1.7 1.5-2.5 4.3-2.2-.7-1.8 1-.5 2.6h-5L9 18.4l-1.8-1-2.2.7-2.5-4.3 1.7-1.5v-2L2.5 8.8 5 4.5l2.2.7 1.8-1 .5-1.2ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
   grid: "M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z",
   bell: "M18 8a6 6 0 0 0-12 0c0 7-3 8-3 9h18c0-1-3-2-3-9M10 21h4",
   news: "M4 3h16v18H4zM8 7h8m-8 4h8m-8 4h3m-3 3h8m-2-3h2",

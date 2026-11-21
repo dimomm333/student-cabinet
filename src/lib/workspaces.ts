@@ -3,6 +3,7 @@ import type { Role } from "@/generated/prisma/enums";
 
 export type WorkspaceRole = Exclude<Role, "STUDENT">;
 export type WorkspaceSection = { slug: string; title: string; icon: IconName; description: string };
+export const passSection: WorkspaceSection = { slug: "passes", title: "Электронные пропуска", icon: "qr", description: "Операции со студенческими пропусками." };
 const profileSection: WorkspaceSection = { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные и сведения об учётной записи." };
 const notificationsSection: WorkspaceSection = { slug: "notifications", title: "Уведомления", icon: "bell", description: "Уведомления об учёбе и работе университета." };
 const clearanceSection: WorkspaceSection = { slug: "clearance", title: "Обходные листы", icon: "check", description: "Проверки подразделений, замечания и итоговые согласования." };

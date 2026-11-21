@@ -13,6 +13,7 @@ import { demoAccounts } from "../src/lib/demo-accounts.ts";
 import { roleLabels, roleHomes as homes } from "../src/lib/roles.ts";
 import { provisionTestDatabase } from "./test-fixtures.mjs";
 import { verifyStudentProfile } from "./student-profile-checks.mjs";
+import { verifyProfileSettings } from "./profile-settings-checks.mjs";
 
 const observe = process.argv.includes("--observe"), production = process.argv.includes("--production");
 mkdirSync(".local", { recursive: true });
@@ -254,6 +255,10 @@ try {
     }
     if (!observe && actor.role === 'STUDENT') await verifyNotificationsNavigation(page, context);
     if (!observe) await verifyProfile(page, context, actor, home);
+    if (!observe) {
+      await verifyProfileSettings({ page, context, db, actor, home, base, password, root, settle });
+      pass(`${actor.role}: compact settings and password security`, { widths: [346, 360, 390, 1366], themes: ['light', 'dark'] });
+    }
     if (!observe) {
       for (const other of Object.values(homes).filter(path => path !== home)) {
         await page.goto(base + other); await page.waitForURL(base + home); await settle(page);

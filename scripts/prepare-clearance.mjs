@@ -7,7 +7,8 @@ import { createClient } from '@libsql/client';
 import { getDatabaseUrl } from '../src/lib/database-url.ts';
 import { snapshot, integrity, preserved } from './database-snapshot.mjs';
 mkdirSync('.local', { recursive: true, mode: 0o700 });
-const root = mkdtempSync(resolve('.local/clearance-migration-')), source = createClient({ url: getDatabaseUrl() });
+const moduleName = process.argv.includes('--passes') ? 'passes' : 'clearance';
+const root = mkdtempSync(resolve('.local/' + moduleName + '-migration-')), source = createClient({ url: getDatabaseUrl() });
 function migrate(env) { const r = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env, encoding: 'utf8', windowsHide: true }); assert.equal(r.status, 0, 'Migration failed; private output suppressed.'); }
 try {
   await integrity(source);

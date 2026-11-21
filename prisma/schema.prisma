@@ -276,6 +276,7 @@ model ServiceGrant {
 }
 
 model ServiceRequest {
+  issuedPass StudentPass?
   clearances ClearanceProcess[]
   id String @id @default(cuid())
   ownerId String
@@ -390,6 +391,9 @@ enum Role {
 }
 
 model User {
+  passGrant PassGrant?
+  issuedPasses StudentPass[] @relation("PassIssuer")
+  closedPasses StudentPass[] @relation("PassCloser")
   clearances ClearanceProcess[] @relation("ClearanceStudent")
   clearanceGrants ClearanceGrant[]
   clearanceReceipts ClearanceReceipt[]
@@ -500,6 +504,7 @@ model RateLimit {
 }
 
 model StudentProfile {
+  passes StudentPass[]
   userId        String      @id
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   studentNumber String?     @unique
@@ -528,6 +533,44 @@ model StudentProfile {
   officialPhoto StudentOfficialPhoto?
 
   @@index([groupId])
+}
+
+enum PassStatus {
+  ACTIVE
+  REVOKED
+  REPLACED
+}
+
+model PassGrant {
+  userId String @id
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role
+  canVerify Boolean @default(false)
+  canManage Boolean @default(false)
+  windowStart DateTime?
+  checks Int @default(0)
+}
+
+model StudentPass {
+  id Int @id @default(autoincrement())
+  studentId String
+  student StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Restrict)
+  nonce String @unique
+  tokenHash String @unique
+  status PassStatus @default(ACTIVE)
+  activeSlot Int? @default(1)
+  issuedAt DateTime @default(now())
+  issuedBy String
+  issuer User @relation("PassIssuer", fields: [issuedBy], references: [id], onDelete: Restrict)
+  closedAt DateTime?
+  closedBy String?
+  closer User? @relation("PassCloser", fields: [closedBy], references: [id], onDelete: Restrict)
+  reason String?
+  requestId String? @unique
+  request ServiceRequest? @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@unique([studentId, activeSlot])
+  @@index([studentId, id])
 }
 
 enum StudentGender {

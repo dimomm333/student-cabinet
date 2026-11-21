@@ -9,7 +9,7 @@ async function handle(request: Request) {
   const path = new URL(request.url).pathname;
   const allowed = request.method === "GET"
     ? path === "/api/auth/get-session"
-    : request.method === "POST" && ["/api/auth/sign-in/email", "/api/auth/sign-out"].includes(path);
+    : request.method === "POST" && ["/api/auth/sign-in/email", "/api/auth/sign-out", "/api/auth/change-password"].includes(path);
 
   // No public registration, user updates, role management, or account linking.
   if (!allowed) return Response.json({ error: "Маршрут недоступен" }, { status: 404 });

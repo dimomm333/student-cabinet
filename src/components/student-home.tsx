@@ -1,4 +1,5 @@
 "use client";
+import { HomePass } from "./student-pass";
 
 import Link from "next/link";
 import { presentAcademicText } from "@/lib/presentation-copy";
@@ -122,7 +123,7 @@ export function StudentHome({ initial }: { initial: StudentHomeData }) {
   };
   const widgets = { schedule: <Schedule data={data} />, notifications: <NotificationsSummary />, study: <Study data={data} />, announcements: <Announcements data={data} /> };
   return <div className="student-home">
-    <div className="home-heading"><div><h1>Главная</h1>{data.schedule.group && <span className="home-group">{data.schedule.group}</span>}</div><button type="button" className="button button-outline home-settings-trigger" onClick={open}><Icon name="grid" size={16} />Настроить главную</button></div>
+    <div className="home-heading"><div><h1>Главная</h1>{data.schedule.group && <span className="home-group">{data.schedule.group}</span>}</div><div className="home-page-actions"><HomePass /><button type="button" className="button button-outline home-settings-trigger" aria-label="Настроить главную" title="Настроить главную" onClick={open}><Icon name="settings" size={19} /></button></div></div>
     {error && <p className="home-refresh-error" role="status">{error} <button type="button" onClick={() => void refresh()}>Повторить</button></p>}
     <div className="home-layout">{data.layout.order.filter(id => !data.layout.hidden.includes(id)).map(id => <div className="home-widget" data-home-block={id} key={id}>{widgets[id]}</div>)}</div>
     <dialog ref={dialog} className="home-customize" aria-labelledby="home-customize-title" onClick={event => { if (event.target === event.currentTarget && !saving) dialog.current?.close(); }}>

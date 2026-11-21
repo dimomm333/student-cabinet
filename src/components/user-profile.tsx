@@ -6,7 +6,7 @@ import { requireRole } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { roleHomes, roleLabels } from "@/lib/roles";
 import CabinetPageLoading from "./cabinet-page-loading";
-import { NotificationSettings } from "./notification-settings";
+import { ProfileSettings } from "./profile-settings";
 
 type Field = [label: string, value: string | number | null | undefined];
 function ProfileFields({ title, fields }: { title: string; fields: Field[] }) {
@@ -37,7 +37,7 @@ async function ProfileContent({ role }: { role: Exclude<Role, "STUDENT"> }) {
   ] : [];
   return <>
     <div className="dashboard-title"><div><span className="eyebrow">{roleLabels[role]}</span><h1>Профиль</h1><p>Ваши данные из учётной записи университета.</p></div></div>
-    <NotificationSettings />
+    <ProfileSettings />
     <div className="user-profile">
       <ProfileFields title="Учётная запись" fields={[
         ["Имя и фамилия", user.name], ["Электронная почта", user.email], ["Роль", roleLabels[user.role]],

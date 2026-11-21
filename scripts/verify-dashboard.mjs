@@ -240,7 +240,7 @@ try {
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => localStorage.setItem('lks-theme', theme), theme);
       await page.reload();await settle(page);await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      for (const width of [346, 360, 1366]) {
+      for (const width of [346, 360, 390, 1366]) {
         await page.setViewportSize({ width, height: 900 });await checkOrder(page, order);
         await page.screenshot({ path: resolve(root, `order-${position + 1}-${theme}-${width}.png`), fullPage: true, caret: 'initial' });
       }
@@ -267,12 +267,21 @@ try {
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => { localStorage.setItem('lks-theme', theme);document.documentElement.dataset.theme = theme; }, theme);
     await page.reload();await settle(page);await refresh();
-    for (const width of [346, 360, 768, 1366]) {
+    for (const width of [346, 360, 390, 768, 1366]) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate(() => scrollTo(0, 0));
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Horizontal overflow at ' + width);
       assert.equal(await page.locator('.home-heading time').count(), 0);
+      const settings = page.getByRole('button', { name: 'Настроить главную', exact: true });
+      await expect(settings).toHaveAttribute('title', 'Настроить главную');
+      assert.equal((await settings.innerText()).trim(), '', 'Settings trigger must remain icon-only');
+      const buttonBox = await settings.boundingBox(), headingBox = await page.locator('.home-heading h1').boundingBox();
+      assert(buttonBox.width >= 40 && buttonBox.height >= 40, 'Settings touch target below 40px');
+      assert(buttonBox.x > headingBox.x + headingBox.width && Math.abs(buttonBox.y - headingBox.y) < 40, 'Settings must stay to the right of the heading');
+      await settings.focus();await page.keyboard.press('Enter');
+      await expect(page.locator('.home-customize')).toBeVisible();
+      await page.keyboard.press('Escape');await expect(settings).toBeFocused();
       await compactSchedule(page, model);await checkOrder(page, defaultDashboardLayout().order);
       const colors = await page.locator('.home-lesson-body').first().evaluate(node => ({ marker: getComputedStyle(node).borderLeftColor, text: getComputedStyle(node).color }));
       const rgb = colors.marker.match(/\d+/g).map(Number);assert(rgb[1] > rgb[0] && rgb[1] > rgb[2], 'Schedule lost green identity');
@@ -314,7 +323,7 @@ try {
   model = models.noClasses;await page.clock.fastForward(61000);await expect(page.locator('.home-calendar time')).toHaveAttribute('datetime', model.schedule.today);
   pass('Latest grade opens its actual BRS dialog, announcement opens publication, exam opens session, minute refresh changes academic day');
   assert.deepEqual(diagnostics, []);assert(!warning.test(logs), 'Server diagnostics');
-  pass('Light/dark at 346/360/768/1366px, no overflow, semantic green, mobile settings, all data scenarios, provider 0/4 unread, real links and navigation');
+  pass('Light/dark at 346/360/390/768/1366px, no overflow, semantic green, mobile settings, all data scenarios, provider 0/4 unread, real links and navigation');
   assert.equal(await fingerprint(source), before, 'Working database changed');
   const testClient = createClient({ url: process.env.DATABASE_URL });await integrity(testClient);testClient.close();
   pass('No hydration/Blocking Route/Instant/runtime diagnostics; isolated DB integrity and working DB fingerprint preserved');

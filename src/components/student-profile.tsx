@@ -6,7 +6,8 @@ import { roleLabels } from "@/lib/roles";
 import CabinetPageLoading from "./cabinet-page-loading";
 import { Icon, type IconName } from "./icon";
 import { StudentMilitaryRecord } from "./student-military-record";
-import { NotificationSettings } from "./notification-settings";
+import { ProfileSettings } from "./profile-settings";
+import { ProfilePass } from "./student-pass";
 
 type Field = [string, string | number | null | undefined];
 function Details({ title, icon, fields, children }: { title: string; icon: IconName; fields: Field[]; children?: React.ReactNode }) {
@@ -40,7 +41,8 @@ async function ProfileContent() {
       </div>
       <div className="student-profile-identity"><h2>{displayName}</h2><p className="student-group"><Icon name="cap" />{group ? `Группа ${group}` : "Учебная группа: не указано"}</p><span className={`student-status${p?.educationStatus === "STUDYING" ? " student-status-active" : ""}`}>Статус обучения: {status}</span><p className="student-official-note"><Icon name="shield" size={16} />Данные доступны только для просмотра</p></div>
     </section>
-    <NotificationSettings />
+    <ProfileSettings />
+    <ProfilePass />
     <div className="user-profile student-profile-grid">
       <Details title="Личные данные" icon="user" fields={[
         ["Фамилия", p?.lastName], ["Имя", p?.firstName], ["Отчество", p?.middleName],

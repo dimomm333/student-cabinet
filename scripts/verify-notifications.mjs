@@ -256,6 +256,7 @@ try {
   await emit(alex, 'after-network-restored'); await context.setOffline(false); await page.bringToFront(); await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.locator('.notification-list')).toContainText('after-network-restored', { timeout: 18000 });
   await page.goto(base + '/dashboard/profile'); await expect(page.getByRole('heading', { name: 'Настройки уведомлений' })).toBeVisible();
+  await page.getByRole('button', { name: 'Настройки уведомлений', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Дублировать на подтверждённую почту учётной записи' }).uncheck();
   await page.getByRole('button', { name: 'Сохранить настройки уведомлений' }).click(); await expect(page.getByText('Настройки сохранены.', { exact: true })).toBeVisible();
   assert.equal((await db.notificationSettings.findUniqueOrThrow({ where: { userId: alex.id } })).personalEmail, false);
