@@ -2,9 +2,10 @@ import { connection } from "next/server";
 import { randomUUID } from "node:crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { ServiceError, searchServices, configFor } from "@/lib/services-catalog";
+import { ServiceError, searchServices, configFor, servicePhotoMimeTypes } from "@/lib/services-catalog";
 import { executeServiceCommand, getServiceRequest, listServiceRequests, downloadServiceDocument, liveActor, getMilitaryRecord, visibleRequest, militaryEligibility, type ServiceActor, type ServiceCommand } from "@/lib/services-repository";
 import { localServiceStorage, prepareServiceFile, MAX_SERVICE_FILE, MAX_SERVICE_PDF } from "@/lib/services-storage";
+import { readServiceBytes as readBytes } from "@/lib/services-upload";
 
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Content-Type-Options": "nosniff" };
 const response = (data: unknown, status = 200) => Response.json(data, { status, headers });
@@ -63,23 +64,13 @@ export async function GET(request: Request) {
       const record = await getMilitaryRecord(prisma, user, user.id);
       return response({ record, eligibility: await militaryEligibility(prisma, user.id) });
     }
-    if (view === "file") {
-      const doc = await downloadServiceDocument(prisma, user, id, localServiceStorage());
-      return new Response(new Uint8Array(doc.bytes), { headers: { ...headers, "Content-Type": doc.mime, "Content-Disposition": `attachment; filename="document.${doc.mime === "application/pdf" ? "pdf" : doc.mime === "image/jpeg" ? "jpg" : "png"}"; filename*=UTF-8''${encodeURIComponent(doc.name)}`, "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Length": String(doc.bytes.length) } });
+    if (view === "file" || view === "photo") {
+      const doc = await downloadServiceDocument(prisma, user, id, localServiceStorage(), view === "photo");
+      const extension = doc.mime === "application/pdf" ? "pdf" : doc.mime === "image/jpeg" ? "jpg" : doc.mime === "image/webp" ? "webp" : "png";
+      return new Response(new Uint8Array(doc.bytes), { headers: { ...headers, "Content-Type": doc.mime, "Content-Disposition": `${view === "photo" ? "inline" : "attachment"}; filename="document.${extension}"; filename*=UTF-8''${encodeURIComponent(doc.name)}`, "Content-Security-Policy": "default-src 'none'; sandbox", "Cross-Origin-Resource-Policy": "same-origin", "Content-Length": String(doc.bytes.length) } });
     }
     throw new ServiceError("Неизвестная операция чтения.");
   } catch (error) { return errorResponse(error, "READ"); }
-}
-async function readBytes(request: Request, limit: number) {
-  if (Number(request.headers.get("content-length") ?? 0) > limit) throw new ServiceError("Запрос слишком большой.", 413);
-  const reader = request.body?.getReader(); if (!reader) throw new ServiceError("Пустое тело запроса.");
-  const chunks: Uint8Array[] = []; let size = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => { void reader.cancel(); reject(new ServiceError("Время приёма запроса истекло.", 408)); }, 15000); });
-    for (;;) { const part = await Promise.race([reader.read(), timeout]); if (part.done) break; size += part.value.length; if (size > limit) { await reader.cancel(); throw new ServiceError("Запрос слишком большой.", 413); } chunks.push(part.value); }
-    return Buffer.concat(chunks);
-  } finally { if (timer) clearTimeout(timer); reader.releaseLock(); }
 }
 const commandFields = new Set("operation requestId id version code fields confirmed confirmationHash status text clarificationFields clarificationSlots documentId slot kind".split(" "));
 export async function POST(request: Request) {
@@ -91,19 +82,22 @@ export async function POST(request: Request) {
     const p = parameters(request, ["upload", "id", "version", "requestId", "slot", "kind"]);
     if (p.get("upload") === "1") {
       const id = p.get("id") ?? "";
-      await visibleRequest(prisma, initialActor, id, true);
+      const application = await visibleRequest(prisma, initialActor, id, true);
+      const photoOnly = p.get("kind") === "STUDENT" && configFor(application.serviceCode, application.schemaVersion).documents.some(slot => slot.key === p.get("slot") && slot.photoOnly);
+      const mime = request.headers.get("content-type") ?? "";
+      if (photoOnly && !servicePhotoMimeTypes.includes(mime)) throw new ServiceError("Приложите фотографию JPEG, PNG или WebP.", 415);
       stage = "RECEIVE";
-      const isPdf = request.headers.get("content-type") === "application/pdf";
+      const isPdf = mime === "application/pdf";
       let bytes: Buffer;
       try { bytes = await readBytes(request, isPdf ? MAX_SERVICE_PDF : MAX_SERVICE_FILE); }
       catch (error) {
-        if (error instanceof ServiceError && error.status === 413) throw new ServiceError(`${isPdf ? "PDF" : request.headers.get("content-type") === "image/png" ? "PNG" : "JPG/JPEG"} слишком большой. Допустимый размер — ${isPdf ? 20 : 8} МиБ. Выберите другой файл.`, 413);
+        if (error instanceof ServiceError && error.status === 413) throw new ServiceError(`${isPdf ? "PDF" : mime === "image/png" ? "PNG" : mime === "image/webp" ? "WebP" : "JPG/JPEG"} слишком большой. Допустимый размер — ${isPdf ? 20 : 8} МиБ. Выберите другой файл.`, 413);
         throw error;
       }
       stage = "VALIDATE";
       let filename: string;
       try { filename = decodeURIComponent(request.headers.get("x-file-name") ?? ""); } catch { throw new ServiceError("Некорректное имя файла."); }
-      const file = await prepareServiceFile(bytes, filename, request.headers.get("content-type") ?? "");
+      const file = await prepareServiceFile(bytes, filename, mime, photoOnly);
       const user = await actor(request), storage = localServiceStorage();
       stage = "STORE";
       await storage.put(file.key, file.bytes);

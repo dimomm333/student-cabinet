@@ -5,6 +5,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { serviceFetch, serviceUpload, ServiceApiError, serviceUrl, serviceDate, serviceStatusLabels, optionLabel, type RequestDetail, type HistoryView, type ServiceDocumentView } from "@/lib/services-ui";
 import { recoveryKey, readRecovery, writeRecovery, clearRecovery } from "@/lib/services-recovery";
 import { prepareServiceImage } from "@/lib/services-image";
+import { servicePhotoMimeTypes } from "@/lib/services-catalog";
 
 const profileLabels: Record<string, string> = { name: "ФИО", group: "Учебная группа", studentNumber: "Студенческий номер", program: "Образовательная программа", military: "Воинский учёт", registrationStatus: "Сведения об учёте", office: "Военкомат", documentType: "Вид документа", documentNumber: "Реквизиты документа", verifiedAt: "Дата подтверждения" };
 export function ServiceProfileValues({ values }: { values: Record<string, unknown> }) {
@@ -13,6 +14,20 @@ export function ServiceProfileValues({ values }: { values: Record<string, unknow
 const strings = (fields: Record<string, string | number>) => Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, String(value)]));
 const historyLabel = (action: string) => serviceStatusLabels[action as keyof typeof serviceStatusLabels] ?? ({ CREATE: "Создан черновик", SAVE: "Сохранены поля", DELETE: "Удалён черновик", SUBMIT: "Заявление отправлено", COMMENT: "Сообщение", UPLOAD: "Добавлен документ", REMOVE_FILE: "Документ снят с заявления" }[action] ?? action);
 type Result = { id: string; version: number; documentId?: string };
+const formatFileSize = (size: number) => `${Math.ceil(size / 1024)} КБ`;
+
+function PhotoPreview({ file }: { file: File }) {
+  const image = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const element = image.current;
+    if (!element) return;
+    const url = URL.createObjectURL(file);
+    element.src = url;
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  // eslint-disable-next-line @next/next/no-img-element -- Local preview; never send the file to an image optimizer.
+  return <img ref={image} alt="" width={72} height={56} />;
+}
 
 export function ServiceRequestScreen({ id, path, student, ownerId }: { id: string; path: string; student: boolean; ownerId: string }) {
   const router = useRouter();
@@ -21,12 +36,15 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
   const [confirmed, setConfirmed] = useState(false), [comment, setComment] = useState(""), [decision, setDecision] = useState(""), [decisionText, setDecisionText] = useState("");
   const [clarifyFields, setClarifyFields] = useState<string[]>([]), [clarifySlots, setClarifySlots] = useState<string[]>([]), [deleteConfirm, setDeleteConfirm] = useState(false);
   const [historyPage, setHistoryPage] = useState(0), [moreHistory, setMoreHistory] = useState(false), [reload, setReload] = useState(0);
-  const pending = useRef(new Map<string, string>()), inFlight = useRef(false);
+  const pending = useRef(new Map<string, string>()), inFlight = useRef(false), refreshing = useRef(false);
   const current = useRef<RequestDetail | null>(null), values = useRef<Record<string, string>>({});
   const saving = useRef<Promise<RequestDetail> | null>(null), stopped = useRef(false), blocked = useRef(false);
   const uncertain = useRef<{ command: Record<string, unknown>; snapshot: Record<string, string> } | null>(null);
   const [saveState, setSaveState] = useState("Сохранено");
   const [uploadState, setUploadState] = useState<{ name: string; size: number; percent: number; status: string; reason?: string } | null>(null);
+  const photoPicker = useRef<HTMLInputElement>(null);
+  const [photos, setPhotos] = useState<{ id: string; file: File }[]>([]);
+  const [refreshAvailable, setRefreshAvailable] = useState(false);
   const recovery = recoveryKey(ownerId, id);
   function adopt(next: RequestDetail) { current.current = next; setDetail(next); }
   useEffect(() => {
@@ -74,12 +92,45 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
   }
   async function fresh(preserve = false) {
     const next = await serviceFetch<RequestDetail>(serviceUrl({ view: "request", id }));
+    const previous = current.current;
+    const edits = preserve && previous
+      ? Object.keys(changedFields(previous)).map(key => [key, values.current[key] ?? ""])
+      : [];
     if (detail?.profilePreview?.confirmationHash !== next.profilePreview?.confirmationHash) setConfirmed(false);
     adopt(next); blocked.current = false; if (["DRAFT", "CLARIFICATION_REQUIRED"].includes(next.status)) stopped.current = false;
-    if (!preserve) { values.current = strings(next.fields); setInputs(values.current); }
+    setRefreshAvailable(false);
+    values.current = { ...strings(next.fields), ...Object.fromEntries(edits) }; setInputs(values.current);
     setHistoryPage(0); setMoreHistory(next.historyHasMore || next.documentsHasMore);
     return next;
   }
+  const refreshStatus = useEffectEvent(async () => {
+    const base = current.current;
+    const editing = () => document.activeElement?.matches(".services-detail :is(textarea, select, input:not([type=checkbox]))");
+    if (!base || refreshing.current || inFlight.current || saving.current || dirty || conflict || comment || decision || decisionText || editing() || document.visibilityState !== "visible") return;
+    refreshing.current = true;
+    try {
+      const next = await serviceFetch<RequestDetail>(serviceUrl({ view: "request", id }), { signal: AbortSignal.timeout(10000) });
+      if (current.current !== base || inFlight.current || saving.current || editing() || Object.keys(changedFields(base)).length) return;
+      if (next.version === base.version && next.permissions.readFiles === base.permissions.readFiles && !refreshAvailable) return;
+      if (next.profilePreview?.confirmationHash !== base.profilePreview?.confirmationHash) setConfirmed(false);
+      adopt(next);
+      values.current = strings(next.fields); setInputs(values.current);
+      setHistoryPage(0); setMoreHistory(next.historyHasMore || next.documentsHasMore);
+      setRefreshAvailable(false);
+    } catch { /* Background reads never replace the current draft or its errors. */ }
+    finally { refreshing.current = false; }
+  });
+  useEffect(() => {
+    const refresh = () => { void refreshStatus(); };
+    const timer = window.setInterval(refresh, 3000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [id]);
   function changedFields(current: RequestDetail) {
     return Object.fromEntries(current.config.fields.filter(field => (values.current[field.key] ?? "") !== String(current.fields[field.key] ?? "")).map(field => {
       const value = values.current[field.key] ?? "";
@@ -162,17 +213,16 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
       stopped.current = true; clearRecovery(recovery); setConfirmed(false); await fresh(); setNotice("Заявление отправлено.");
     });
   }
-  async function upload(file: File, slot: string, kind: string) {
-    if (!detail) return;
-    await run(async () => {
-      if (!["image/png", "image/jpeg", "application/pdf"].includes(file.type) || !/\.(png|jpe?g|pdf)$/i.test(file.name)) { setUploadState({ name: file.name, size: file.size, percent: 0, status: "Ошибка" }); throw new Error("Допустимы PNG, JPEG и PDF."); }
-      if (file.type !== "application/pdf") {
+  async function uploadOne(file: File, slot: string, kind: string, photoOnly = false) {
+      const allowed = photoOnly ? servicePhotoMimeTypes : ["image/png", "image/jpeg", "application/pdf"];
+      if (!allowed.includes(file.type) || !(photoOnly ? /\.(png|jpe?g|webp)$/i : /\.(png|jpe?g|pdf)$/i).test(file.name)) { setUploadState({ name: file.name, size: file.size, percent: 0, status: "Ошибка" }); throw new Error(photoOnly ? "Допустимы JPEG, PNG и WebP." : "Допустимы PNG, JPEG и PDF."); }
+      if (!photoOnly && file.type !== "application/pdf") {
         setUploadState({ name: file.name, size: file.size, percent: 0, status: "Подготовка изображения…" });
         try { file = await prepareServiceImage(file); }
         catch (error) { setUploadState({ name: file.name, size: file.size, percent: 0, status: "Ошибка", reason: (error as Error).message }); throw error; }
       }
       if (!file.size || file.size > (file.type === "application/pdf" ? 20 : 8) * 1024 * 1024) {
-        const reason = !file.size ? "Файл пустой. Выберите другой файл." : `${file.type === "application/pdf" ? "PDF" : file.type === "image/png" ? "PNG" : "JPG/JPEG"} слишком большой. Допустимый размер — ${file.type === "application/pdf" ? 20 : 8} МиБ. Выберите другой файл.`;
+        const reason = !file.size ? "Файл пустой. Выберите другой файл." : `${file.type === "application/pdf" ? "PDF" : file.type === "image/png" ? "PNG" : file.type === "image/webp" ? "WebP" : "JPG/JPEG"} слишком большой. Допустимый размер — ${file.type === "application/pdf" ? 20 : 8} МиБ. Выберите другой файл.`;
         setUploadState({ name: file.name, size: file.size, percent: 0, status: "Ошибка", reason }); throw new Error(reason);
       }
       const base = student ? await save() : current.current!;
@@ -198,8 +248,23 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
           if (error instanceof ServiceApiError && [401, 403, 404].includes(error.status)) throw error;
         }
       }
-      setNotice("Документ сохранён. Список приложений пока недоступен; нажмите «Обновить данные». Повторно загружать файл не нужно. " + readFailure);
-    });
+      setRefreshAvailable(true);
+      setNotice("Документ сохранён. Список приложений пока недоступен. Повторно загружать файл не нужно. " + readFailure);
+  }
+  async function upload(file: File, slot: string, kind: string) {
+    await run(() => uploadOne(file, slot, kind));
+  }
+  function selectPhotos(files: File[]) {
+    setError(""); setNotice("");
+    if (files.some(file => !servicePhotoMimeTypes.includes(file.type) || !/\.(png|jpe?g|webp)$/i.test(file.name))) {
+      setError("Допустимы фотографии JPEG, PNG и WebP."); return;
+    }
+    if (files.some(file => !file.size || file.size > 8 * 1024 * 1024)) {
+      setError("Выберите непустые фотографии размером до 8 МиБ каждая."); return;
+    }
+    const active = current.current?.documents.filter(doc => !doc.removedAt).length ?? 0;
+    if (active + photos.length + files.length > 20) { setError("К заявлению можно прикрепить не более 20 файлов."); return; }
+    setPhotos([...photos, ...files.map(file => ({ file, id: crypto.randomUUID() }))]);
   }
   function fileLink(doc: ServiceDocumentView) { return <a href={serviceUrl({ view: "file", id: doc.id })} download>{doc.name} <span className="services-muted">{Math.ceil(doc.size / 1024)} КБ · Скачать</span></a>; }
   if (!detail) return <section className="panel services-panel"><Link href={path} className="button button-primary services-back">← К каталогу услуг</Link>{error ? <div role="alert" className="services-error">{error}<button onClick={() => setReload(n => n + 1)}>Повторить</button></div> : <p role="status">Загружаем заявление…</p>}</section>;
@@ -210,10 +275,12 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
   const transitionOptions = detail.status === "SUBMITTED" ? ["IN_REVIEW"] : detail.status === "IN_REVIEW" ? ["IN_PROGRESS", "CLARIFICATION_REQUIRED", "REJECTED"] : detail.status === "IN_PROGRESS" ? ["CLARIFICATION_REQUIRED", "COMPLETED", "REJECTED"] : [];
   const clarify = detail.latestClarification;
   return <div className="services-detail" aria-busy={busy}>
-    <div className="services-toolbar"><Link href={path} className="button button-primary services-back">← К каталогу услуг</Link><Link href={path + (student ? "?tab=requests" : "")} className="text-link">← {student ? "Мои заявления" : "Очередь заявлений"}</Link><button className="button button-secondary" disabled={busy} onClick={() => void run(async () => { await fresh(true); setNotice("Версия обновлена. Ваш ввод сохранён на экране."); })}>Обновить данные</button></div>
+    <div className="services-toolbar"><Link href={path} className="button button-primary services-back">← К каталогу услуг</Link><Link href={path + (student ? "?tab=requests" : "")} className="text-link">← {student ? "Мои заявления" : "Очередь заявлений"}</Link></div>
     <section className="panel services-panel services-request-heading"><span className={"services-status status-" + detail.status}>{serviceStatusLabels[detail.status]}</span><h2>{config.title}</h2><p className="services-number">Заявление № {detail.id}</p><p className="services-muted">Создано: {serviceDate(detail.createdAt)} · Подано: {serviceDate(detail.submittedAt)} · Обновлено: {serviceDate(detail.updatedAt)}</p></section>
-    {error && <div className="services-error" role="alert">{error}{conflict && <><p>Заявление изменено в другом окне или другим сотрудником. Обновите её, проверьте свои изменения и повторите действие.</p><button disabled={busy} onClick={() => void run(async () => { await fresh(true); setNotice("Актуальная версия загружена; введённые поля сохранены на экране."); })}>Обновить версию, сохранив мой ввод</button></>}</div>}
-    {notice && <p className="services-success" role="status">{notice}</p>}{busy && <p className="services-progress" role="status">Выполняем операцию…</p>}
+    {error && <div className="services-error" role="alert">{error}{conflict && <><p>Заявление изменено в другом окне или другим сотрудником. Загрузите актуальную версию, проверьте свои изменения и повторите действие.</p><button disabled={busy} onClick={() => void run(async () => { await fresh(true); setNotice("Актуальная версия загружена; введённые поля сохранены на экране."); })}>Обновить версию, сохранив мой ввод</button></>}</div>}
+    {notice && <p className="services-success" role="status">{notice}</p>}
+    {refreshAvailable && <button className="button button-secondary" disabled={busy} onClick={() => void run(async () => { await fresh(true); setNotice("Список приложений обновлён."); })}>Повторить чтение приложений</button>}
+    {busy && <p className="services-progress" role="status">Выполняем операцию…</p>}
     {detail.eligibility === "NOT_REQUIRED" && <p className="services-notice">Воинский учёт для вас не требуется</p>}{detail.eligibility === "UNKNOWN" && <p className="services-notice">Статус воинского учёта пока не подтверждён. Заявление рассмотрит уполномоченный сотрудник после проверки документов.</p>}{detail.status === "CLARIFICATION_REQUIRED" && <section className="services-notice"><h3>Требуется уточнение</h3><p className="services-text">{clarify?.text}</p><p>Поля: {detail.clarification?.fields.map(key => config.fields.find(f => f.key === key)?.label).join(", ") || "изменения не запрошены"}.</p><p>Документы: {detail.clarification?.slots.map(key => config.documents.find(d => d.key === key)?.label).join(", ") || "изменения не запрошены"}.</p></section>}
     <div className="services-detail-grid"><div>
       <section className="panel services-panel"><h3>{editable ? "Поля заявления" : "Поданные сведения"}</h3><p className="services-muted">{config.description}</p>
@@ -223,9 +290,42 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
         </label>)}</fieldset>
         {editable && <p role="status" className="services-autosave">{saveState} · Автоматически в личном кабинете</p>}{editable && <button className="button button-secondary" disabled={busy} onClick={() => void run(async () => { await save(); setNotice("Черновик сохранён в личном кабинете."); })}>Сохранить изменения</button>}
       </section>
-      <section className="panel services-panel"><h3>Документы</h3>{uploadState && <div className="services-upload-progress" role="status"><strong>{uploadState.name}</strong><span>{(uploadState.size / 1048576).toFixed(2)} МиБ · {uploadState.status}{uploadState.status === "Подготовка изображения…" ? "" : ` · ${uploadState.percent}%`}</span><progress max="100" value={uploadState.status === "Подготовка изображения…" ? undefined : uploadState.percent} aria-label="Прогресс загрузки" />{uploadState.status === "Ошибка" && <><p className="services-text">{uploadState.reason}</p><small>Проверьте причину и список документов перед повторным выбором файла.</small></>}</div>}<p className="services-muted">Поддерживаемые форматы: JPG, JPEG, PNG, PDF</p>
+      <section className="panel services-panel"><h3>Документы</h3>{uploadState && <div className="services-upload-progress" role="status"><strong>{uploadState.name}</strong><span>{(uploadState.size / 1048576).toFixed(2)} МиБ · {uploadState.status}{uploadState.status === "Подготовка изображения…" ? "" : ` · ${uploadState.percent}%`}</span><progress max="100" value={uploadState.status === "Подготовка изображения…" ? undefined : uploadState.percent} aria-label="Прогресс загрузки" />{uploadState.status === "Ошибка" && <><p className="services-text">{uploadState.reason}</p><small>Проверьте причину и список документов перед повторным выбором файла.</small></>}</div>}{(!student || !config.documents.some(slot => slot.photoOnly)) && <p className="services-muted">Поддерживаемые форматы: JPG, JPEG, PNG, PDF</p>}
         {!detail.permissions.readFiles ? <p>Доступ к документам не предоставлен.</p> : <>
-          {config.documents.filter(slot => !slot.when || (editable ? inputs[slot.when.field] : detail.fields[slot.when.field]) === slot.when.value).map(slot => <div className="services-document-slot" key={slot.key}><h4>{slot.label}{slot.required ? " *" : " (необязательно)"}</h4>{detail.documents.filter(d => d.kind === "STUDENT" && d.slot === slot.key && !d.removedAt).map(doc => <div className="services-file" key={doc.id}>{fileLink(doc)}{slotEditable(slot.key) && <button disabled={busy} onClick={() => void run(async () => { await send({ operation: "REMOVE_FILE", id, version: current.current!.version, documentId: doc.id }); await fresh(true); setNotice("Приложение снято с заявления. Можно загрузить замену."); })}>Удалить / заменить</button>}</div>)}{slotEditable(slot.key) && <label className="services-upload">Добавить файл<input aria-label={`Загрузить: ${slot.label}`} type="file" accept="image/png,image/jpeg,application/pdf" disabled={busy} onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file, slot.key, "STUDENT"); e.target.value = ""; }} /></label>}</div>)}
+          {config.documents.filter(slot => !slot.when || (editable ? inputs[slot.when.field] : detail.fields[slot.when.field]) === slot.when.value).map(slot => slot.photoOnly ? <div className="services-document-slot services-photo-slot" key={slot.key}>
+            <h4>{slot.label}</h4>
+            {detail.documents.filter(doc => doc.kind === "STUDENT" && doc.slot === slot.key && !doc.removedAt).map(doc => <div className="services-file" key={doc.id}>
+              <a href={serviceUrl({ view: "photo", id: doc.id })} target="_blank" rel="noopener noreferrer">{doc.name}<span className="services-muted">{formatFileSize(doc.size)} · Открыть фото</span></a>
+              {slotEditable(slot.key) && <button type="button" disabled={busy} onClick={() => void run(async () => {
+                await send({ operation: "REMOVE_FILE", id, version: current.current!.version, documentId: doc.id });
+                await fresh(true); setNotice("Фотография снята с заявления.");
+              })}>Снять фотографию</button>}
+            </div>)}
+            {slotEditable(slot.key) && <div className="services-photo-picker">
+              <p className="services-muted">Необязательно · JPEG, PNG или WebP до 8 МиБ каждый</p>
+              <input ref={photoPicker} type="file" hidden multiple accept={servicePhotoMimeTypes.join(",")} onChange={event => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                if (files.length) selectPhotos(files);
+                event.currentTarget.value = "";
+              }} />
+              <button type="button" className="button button-secondary" disabled={busy} onClick={() => photoPicker.current?.click()}>Прикрепить фотографии</button>
+              {photos.length > 0 && <>
+                <ul className="services-photo-list">{photos.map(photo => <li key={photo.id}>
+                  <PhotoPreview file={photo.file} /><div><strong>{photo.file.name}</strong><small>{formatFileSize(photo.file.size)}</small></div>
+                  <button type="button" disabled={busy} aria-label={"Убрать " + photo.file.name} onClick={() => setPhotos(items => items.filter(item => item.id !== photo.id))}>Убрать</button>
+                </li>)}</ul>
+                <button type="button" className="button button-primary" disabled={busy} onClick={() => void run(async () => {
+                  for (const photo of photos) {
+                    await uploadOne(photo.file, slot.key, "STUDENT", true);
+                    setPhotos(items => items.filter(item => item.id !== photo.id));
+                  }
+                  setError("");
+                })}>Сохранить фотографии</button>
+                <p className="services-muted">Сохраните выбранные фотографии перед отправкой заявления.</p>
+              </>}
+            </div>}
+            {!slotEditable(slot.key) && !detail.documents.some(doc => doc.slot === slot.key && !doc.removedAt) && <p className="services-muted">Фотографий нет.</p>}
+          </div> : <div className="services-document-slot" key={slot.key}><h4>{slot.label}{slot.required ? " *" : " (необязательно)"}</h4>{detail.documents.filter(d => d.kind === "STUDENT" && d.slot === slot.key && !d.removedAt).map(doc => <div className="services-file" key={doc.id}>{fileLink(doc)}{slotEditable(slot.key) && <button disabled={busy} onClick={() => void run(async () => { await send({ operation: "REMOVE_FILE", id, version: current.current!.version, documentId: doc.id }); await fresh(true); setNotice("Приложение снято с заявления. Можно загрузить замену."); })}>Удалить / заменить</button>}</div>)}{slotEditable(slot.key) && <label className="services-upload">Добавить файл<input aria-label={`Загрузить: ${slot.label}`} type="file" accept="image/png,image/jpeg,application/pdf" disabled={busy} onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file, slot.key, "STUDENT"); e.target.value = ""; }} /></label>}</div>)}
           {!config.documents.length && <p>Эта услуга не требует приложений студента.</p>}
           {detail.documents.filter(d => d.kind === "RESULT" && !d.removedAt).map(doc => <div className="services-file" key={doc.id}><span>Итоговый документ · {fileLink(doc)}</span>{!student && detail.status === "IN_PROGRESS" && <button disabled={busy} onClick={() => void run(async () => { await send({ operation: "REMOVE_FILE", id, version: current.current!.version, documentId: doc.id }); await fresh(true); })}>Удалить / заменить</button>}</div>)}
           {!student && detail.status === "IN_PROGRESS" && <label className="services-upload">Добавить итоговый документ<input aria-label="Добавить итоговый документ" type="file" accept="image/png,image/jpeg,application/pdf" disabled={busy} onChange={e => { const file = e.target.files?.[0]; if (file) void upload(file, "result", "RESULT"); e.target.value = ""; }} /></label>}
@@ -237,7 +337,7 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
       {detail.status !== "DRAFT" && <section className="panel services-panel"><h3>Переписка</h3><div className="services-messages">{detail.history.filter(h => h.text).map(h => <article key={h.id}><strong>{h.actorName}</strong><time>{serviceDate(h.createdAt)}</time><p className="services-text">{h.text}</p></article>)}</div>{!terminal && <><label className="services-field">Сообщение<textarea maxLength={4000} value={comment} disabled={busy} onChange={e => setComment(e.target.value)} /></label><button className="button button-secondary" disabled={busy || !comment.trim()} onClick={() => void run(async () => { await send({ operation: "COMMENT", id, version: current.current!.version, text: comment }); setComment(""); await fresh(true); setNotice("Сообщение отправлено."); })}>Отправить сообщение</button></>}{terminal && <p className="services-muted">Переписка завершена вместе с заявлением.</p>}</section>}
     </div><aside>
       {(detail.profilePreview || detail.profileSnapshot) && <section className="panel services-panel"><h3>{editable ? "Проверьте официальные данные" : "Данные при подаче"}</h3><ServiceProfileValues values={editable && detail.profilePreview ? detail.profilePreview.values : detail.profileSnapshot ?? {}} />{student && <><p className="services-muted">Паспортные данные не подставляются автоматически.</p><Link className="text-link" href={path + "?service=personal-change"}>Есть ошибка? Изменить персональные данные →</Link></>}</section>}
-      {editable && <section className="panel services-panel"><h3>{detail.status === "DRAFT" ? "Отправка заявления" : "Повторная отправка"}</h3><label className="services-confirm"><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} />Подтверждаю актуальность показанных официальных данных</label><p className="services-muted">Заполните обязательные поля и приложите документы. После подачи редактирование возможно только по запросу уточнения.</p><button className="button button-primary" disabled={busy || !confirmed} onClick={() => void submit()}>{detail.status === "DRAFT" ? "Отправить заявление" : "Отправить уточнение"}</button>
+      {editable && <section className="panel services-panel"><h3>{detail.status === "DRAFT" ? "Отправка заявления" : "Повторная отправка"}</h3><label className="services-confirm"><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} />Подтверждаю актуальность показанных официальных данных</label><p className="services-muted">Заполните обязательные поля и добавьте нужные приложения. После подачи редактирование возможно только по запросу уточнения.</p><button className="button button-primary" disabled={busy || !confirmed || photos.length > 0} onClick={() => void submit()}>{detail.status === "DRAFT" ? "Отправить заявление" : "Отправить уточнение"}</button>
         {detail.status === "DRAFT" && <div className="services-delete">{!deleteConfirm ? <button disabled={busy} onClick={() => setDeleteConfirm(true)}>Удалить черновик</button> : <><p>Удалить этот черновик?</p><button disabled={busy} onClick={() => void run(async () => { stopped.current = true; try { await send({ operation: "DELETE", id, version: current.current!.version }); clearRecovery(recovery); } catch (e) { stopped.current = false; throw e; } router.push(path + "?tab=drafts"); })}>Да, удалить</button><button disabled={busy} onClick={() => setDeleteConfirm(false)}>Отмена</button></>}</div>}
       </section>}
       <section className="panel services-panel"><h3>История действий</h3><ol className="services-history">{detail.history.map(h => <HistoryEntry key={h.id} entry={h} detail={detail} />)}</ol>{moreHistory && <button className="button button-secondary" disabled={busy} onClick={() => void run(async () => { const next = await serviceFetch<RequestDetail>(serviceUrl({ view: "request", id, page: String(historyPage + 1) })); const unique = <T extends { id: string }>(a: T[], b: T[]) => [...new Map([...a, ...b].map(item => [item.id, item])).values()]; setDetail(old => old ? { ...old, history: unique(old.history, next.history), documents: unique(old.documents, next.documents) } : old); setHistoryPage(n => n + 1); setMoreHistory(next.historyHasMore || next.documentsHasMore); })}>Показать ещё историю</button>}</section>

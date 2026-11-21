@@ -33,6 +33,15 @@ const fixtureJournal = createClient({ url: process.env.DATABASE_URL });
 await fixtureJournal.execute("PRAGMA journal_mode = WAL"); fixtureJournal.close();
 const db = createPrismaClient(), password = randomBytes(24).toString("base64url");
 await db.account.updateMany({ where: { providerId: "credential" }, data: { password: await hashPassword(password) } });
+const [navigationAdmin, navigationStaff] = await Promise.all(["ADMIN", "TECHNICAL_STAFF"].map(role =>
+  db.user.findUniqueOrThrow({ where: { email: demoAccounts.find(account => account.role === role).email } })));
+const navigationDorm = await db.dormitory.create({ data: {
+  name: "Общежитие для проверки навигации", address: "Учебный адрес",
+  grants: { create: [
+    ...["HOUSING", "REPAIR", "FINANCE"].map(permission => ({ userId: navigationAdmin.id, permission })),
+    ...["HOUSING", "TECHNICIAN"].map(permission => ({ userId: navigationStaff.id, permission })),
+  ] },
+} });
 // Keep the user's running next dev and its build cache untouched as well.
 if (!production) {
   mkdirSync(project);
@@ -59,6 +68,75 @@ const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", produc
 child.stdout.on("data", data => { logs += data; }); child.stderr.on("data", data => { logs += data; });
 const warningPattern = /Next\.js encountered|unstable value|uncached data during|blocking-prerender|Blocking Route|Instant validation/;
 function pass(name, evidence = {}) { results.push({ name, ...evidence }); console.info(`PASS: ${name} ${JSON.stringify(evidence)}`); }
+async function verifySectionSwitches(page, role) {
+  const home = homes[role];
+  const student = role === "STUDENT";
+  const dormitory = role === "ADMIN" || role === "TECHNICAL_STAFF";
+  const start = student ? "/dashboard/services?tab=drafts" : dormitory
+    ? `${home}/dormitory?dorm=${navigationDorm.id}&tab=housing` : `${home}/grades`;
+  const destination = student ? "/dashboard/services" : dormitory
+    ? `${home}/dormitory?dorm=${navigationDorm.id}&tab=repairs` : `${home}/session`;
+  const control = page.getByRole(student ? "tablist" : "navigation", { name: student ? "Услуги и заявления" : dormitory ? "Разделы управления" : "Разделы БРС" });
+  const active = control.locator(student ? '[aria-selected="true"]' : '[aria-current="page"]');
+  const original = student ? "Черновики" : dormitory ? "Размещение" : "Успеваемость";
+  const next = student ? "Каталог услуг" : dormitory ? "Ремонт" : "Сессия";
+  await page.goto(base + start); await settle(page);
+  await expect(active).toHaveText(original);
+  for (const theme of ["light", "dark"]) {
+    await page.locator(".theme-toggle").click();
+    await page.getByRole("menuitemradio", { name: theme === "light" ? "Светлая" : "Тёмная", exact: true }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    for (const width of [346, 360, 390, 768, 1366]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert(await control.evaluate(el => {
+        const bounds = el.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= innerWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1;
+      }), `Section switch overflow for ${role} at ${width}px`);
+    }
+    const background = await active.evaluate(el => getComputedStyle(el).backgroundColor);
+    assert.notEqual(background, await control.locator(".section-switch-item").filter({ hasText: next }).evaluate(el => getComputedStyle(el).backgroundColor));
+    await page.screenshot({ path: resolve(root, `sections-${role.toLowerCase()}-${theme}.png`) });
+  }
+  await expect(page.locator(".desktop-sidebar .sidebar-nav [aria-current=page]")).toHaveCount(1);
+  const target = control.getByRole(student ? "tab" : "link", { name: next, exact: true });
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+  if (student) {
+    await active.focus();
+    await page.keyboard.press("Home");
+    await expect(target).toBeFocused();
+    await expect(active).toHaveText(original);
+    await page.keyboard.press("ArrowRight");
+    await expect(control.getByRole("tab", { name: "Мои заявления" })).toBeFocused();
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("tabpanel", { name: next })).toBeVisible();
+  } else {
+    await expect(target).toHaveAttribute("href", destination);
+    await target.focus();
+    await page.keyboard.press("Enter");
+  }
+  await page.waitForURL(base + destination);
+  await expect(active).toHaveText(next);
+  assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin);
+  await page.goBack(); await expect(active).toHaveText(original);
+  await page.goForward(); await expect(active).toHaveText(next);
+  await page.reload(); await settle(page); await expect(active).toHaveText(next);
+  if (role === "DEANERY_STAFF") {
+    await page.goto(base + "/deanery/brs"); await expect(active).toHaveText("Планы БРС");
+    await page.goto(base + "/deanery/admissions"); await expect(active).toHaveText("Допуски");
+  }
+  if (role === "TECHNICAL_STAFF") {
+    await expect(control.getByRole("link", { name: "Начисления" })).toHaveCount(0);
+    await page.goto(base + `${home}/dormitory?dorm=${navigationDorm.id}&tab=finance`);
+    await expect(page.getByText("Нет назначения для выбранного раздела.")).toBeVisible();
+    await expect(active).toHaveCount(0);
+  }
+  if (student) {
+    await page.goto(base + "/admin/dormitory"); await page.waitForURL(base + home);
+    await expect(page.getByRole("navigation", { name: "Разделы управления" })).toHaveCount(0);
+  }
+  pass(`${role}: section switches, keyboard, deep links, reload and history`, { widths: [346, 360, 390, 768, 1366], themes: ["light", "dark"] });
+}
 async function settle(page) {
   await page.locator("main h1:visible").first().waitFor({ timeout: 60000 });
   await page.waitForLoadState("networkidle", { timeout: 60000 });
@@ -235,6 +313,7 @@ try {
     assert.equal(await page.evaluate(() => performance.timeOrigin), documentTime, "Menu navigation reloaded the document");
     await page.screenshot({ path: resolve(root, `${actor.role.toLowerCase()}.png`), fullPage: true });
     pass(`${actor.role}: direct visit, menu and return home`, { sections: links.length });
+    if (!observe) await verifySectionSwitches(page, actor.role);
     if (!observe && actor.role === 'DEANERY_STAFF') {
       await page.goto(base + '/deanery/schedule'); await settle(page);
       for (const width of [1366, 360]) for (const theme of ['light', 'dark']) {

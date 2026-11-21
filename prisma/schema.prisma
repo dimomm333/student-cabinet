@@ -276,6 +276,7 @@ model ServiceGrant {
 }
 
 model ServiceRequest {
+  dormPlacements DormPlacement[]
   issuedPass StudentPass?
   clearances ClearanceProcess[]
   id String @id @default(cuid())
@@ -391,6 +392,13 @@ enum Role {
 }
 
 model User {
+  dormGrants DormGrant[]
+  dormPlacements DormPlacement[]
+  dormRepairsCreated DormRepair[] @relation("DormRepairAuthor")
+  dormRepairsAssigned DormRepair[] @relation("DormRepairAssignee")
+  dormDocuments DormDocument[]
+  dormCharges DormCharge[]
+  dormAudit DormAudit[]
   passGrant PassGrant?
   issuedPasses StudentPass[] @relation("PassIssuer")
   closedPasses StudentPass[] @relation("PassCloser")
@@ -637,6 +645,8 @@ model DeaneryDepartmentAssignment {
 }
 
 model News {
+  dormResidents Boolean @default(false)
+  dormTargets DormNewsTarget[]
   id          String   @id @default(cuid())
   title       String
   content     String
@@ -652,6 +662,9 @@ model News {
 // Events and addressed notifications are committed with the authoritative change.
 // sourceKey is stable across retries; seq is the inbox high-water mark.
 model NotificationEvent {
+  dormRepairId String?
+  dormRepair DormRepair? @relation(fields: [dormRepairId], references: [id], onDelete: Restrict)
+  @@index([dormRepairId])
   @@index([clearanceProcessId])
   clearanceProcessId String?
   clearanceProcess ClearanceProcess? @relation(fields: [clearanceProcessId], references: [id], onDelete: Restrict)
@@ -1281,4 +1294,339 @@ model MaterialAudit {
 model MaterialWriteState {
   id String @id
   version Int @default(0)
+}
+
+enum DormPermission {
+  FUND
+  HOUSING
+  REPAIR
+  TECHNICIAN
+  FINANCE
+  DOCUMENTS
+  ANNOUNCEMENTS
+  GRANTS
+}
+
+enum DormPlacementStatus {
+  RESERVED
+  ACTIVE
+  ENDED
+  CANCELLED
+  EXPIRED
+}
+
+enum DormRepairStatus {
+  NEW
+  ACCEPTED
+  ASSIGNED
+  IN_PROGRESS
+  VERIFY
+  CLOSED
+  REWORK
+  REJECTED
+  CANCELLED
+  MERGED
+}
+
+enum DormRepairCategory {
+  ELECTRICITY
+  PLUMBING
+  FURNITURE
+  APPLIANCE
+  OTHER
+}
+
+enum DormDocumentKind {
+  CONTRACT
+  RULES
+  INSTRUCTIONS
+  RECEIPT
+  OTHER
+}
+
+enum DormLedgerKind {
+  PAYMENT
+  ADJUSTMENT
+}
+
+model Dormitory {
+  id String @id @default(cuid())
+  name String @unique
+  address String
+  contacts String?
+  archivedAt DateTime?
+  buildings DormBuilding[]
+  grants DormGrant[]
+  documents DormDocument[]
+  paymentUrl String?
+  newsTargets DormNewsTarget[]
+}
+
+model DormBuilding {
+  id String @id @default(cuid())
+  dormitoryId String
+  dormitory Dormitory @relation(fields: [dormitoryId], references: [id], onDelete: Restrict)
+  name String @default("")
+  floors DormFloor[]
+  newsTargets DormNewsTarget[]
+  @@unique([dormitoryId, name])
+}
+
+model DormFloor {
+  id String @id @default(cuid())
+  buildingId String
+  building DormBuilding @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  number Int
+  blocks DormBlock[]
+  rooms DormRoom[]
+  @@unique([buildingId, number])
+}
+
+model DormBlock {
+  id String @id @default(cuid())
+  floorId String
+  floor DormFloor @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  name String
+  rooms DormRoom[]
+  @@unique([floorId, name])
+}
+
+model DormRoom {
+  id String @id @default(cuid())
+  floorId String
+  floor DormFloor @relation(fields: [floorId], references: [id], onDelete: Restrict)
+  blockId String?
+  block DormBlock? @relation(fields: [blockId], references: [id], onDelete: Restrict)
+  number String
+  type String
+  capacity Int
+  available Boolean @default(true)
+  archivedAt DateTime?
+  notes String?
+  beds DormBed[]
+  repairs DormRepair[]
+  inventory DormAsset[]
+  @@unique([floorId, number])
+  @@index([blockId])
+}
+
+model DormBed {
+  id String @id @default(cuid())
+  roomId String
+  room DormRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  number Int
+  available Boolean @default(true)
+  archivedAt DateTime?
+  placements DormPlacement[]
+  @@unique([roomId, number])
+}
+
+model DormGrant {
+  dormitoryId String
+  dormitory Dormitory @relation(fields: [dormitoryId], references: [id], onDelete: Restrict)
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  permission DormPermission
+  active Boolean @default(true)
+  @@id([dormitoryId, userId, permission])
+  @@index([userId, active])
+}
+
+model DormPlacement {
+  id String @id @default(cuid())
+  studentId String
+  student User @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  bedId String
+  bed DormBed @relation(fields: [bedId], references: [id], onDelete: Restrict)
+  serviceRequestId String?
+  serviceRequest ServiceRequest? @relation(fields: [serviceRequestId], references: [id], onDelete: Restrict)
+  previousId String?
+  previous DormPlacement? @relation("DormTransfer", fields: [previousId], references: [id], onDelete: Restrict)
+  transfers DormPlacement[] @relation("DormTransfer")
+  status DormPlacementStatus
+  reservedUntil DateTime
+  startedAt DateTime?
+  endsOn DateTime?
+  endedAt DateTime?
+  basis String
+  createdAt DateTime @default(now())
+  departure DormDeparture?
+  loans DormLoan[]
+  documents DormDocument[]
+  charges DormCharge[]
+  @@index([studentId, status, createdAt])
+  @@index([bedId, status, reservedUntil])
+  @@index([status, reservedUntil])
+  @@index([serviceRequestId, status])
+  @@index([previousId])
+}
+
+model DormRepair {
+  id String @id @default(cuid())
+  roomId String
+  room DormRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation("DormRepairAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  assigneeId String?
+  assignee User? @relation("DormRepairAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  category DormRepairCategory
+  title String
+  signature String
+  description String
+  urgent Boolean @default(false)
+  status DormRepairStatus @default(NEW)
+  dueOn DateTime?
+  version Int @default(0)
+  mergedIntoId String?
+  mergedInto DormRepair? @relation("DormRepairMerge", fields: [mergedIntoId], references: [id], onDelete: Restrict)
+  duplicates DormRepair[] @relation("DormRepairMerge")
+  events DormRepairEvent[]
+  files DormFile[]
+  notifications NotificationEvent[]
+  createdAt DateTime @default(now())
+  @@index([roomId, status, createdAt])
+  @@index([assigneeId, status])
+  @@index([mergedIntoId])
+}
+
+model DormRepairEvent {
+  id String @id @default(cuid())
+  repairId String
+  repair DormRepair @relation(fields: [repairId], references: [id], onDelete: Restrict)
+  auditId String @unique
+  audit DormAudit @relation(fields: [auditId], references: [id], onDelete: Restrict)
+  status DormRepairStatus
+  message String?
+  staffOnly Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([repairId, createdAt])
+}
+
+model DormFile {
+  id String @id @default(cuid())
+  key String @unique
+  name String
+  mime String
+  size Int
+  sha256 String
+  repairId String?
+  repair DormRepair? @relation(fields: [repairId], references: [id], onDelete: Restrict)
+  document DormDocument?
+  @@index([repairId])
+}
+
+model DormDocument {
+  id String @id @default(cuid())
+  dormitoryId String
+  dormitory Dormitory @relation(fields: [dormitoryId], references: [id], onDelete: Restrict)
+  ownerId String?
+  owner User? @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  placementId String?
+  placement DormPlacement? @relation(fields: [placementId], references: [id], onDelete: Restrict)
+  fileId String @unique
+  file DormFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+  kind DormDocumentKind
+  title String
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([dormitoryId, ownerId, archivedAt])
+  @@index([ownerId, archivedAt])
+  @@index([placementId, kind])
+}
+
+model DormCharge {
+  id String @id @default(cuid())
+  studentId String
+  student User @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  placementId String
+  placement DormPlacement @relation(fields: [placementId], references: [id], onDelete: Restrict)
+  basis String
+  periodFrom DateTime
+  periodTo DateTime
+  amountRub String
+  currency String @default("RUB")
+  dueOn DateTime
+  createdAt DateTime @default(now())
+  entries DormLedgerEntry[]
+  @@unique([placementId, periodFrom, periodTo, basis])
+  @@index([studentId, dueOn])
+}
+
+model DormLedgerEntry {
+  id String @id @default(cuid())
+  chargeId String
+  charge DormCharge @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+  auditId String @unique
+  audit DormAudit @relation(fields: [auditId], references: [id], onDelete: Restrict)
+  kind DormLedgerKind
+  amountRub String
+  reference String
+  recordedAt DateTime @default(now())
+  @@unique([chargeId, kind, reference])
+}
+
+model DormAsset {
+  id String @id @default(cuid())
+  roomId String
+  room DormRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  label String
+  condition String
+  archivedAt DateTime?
+  @@index([roomId, archivedAt])
+}
+
+model DormLoan {
+  id String @id @default(cuid())
+  placementId String
+  placement DormPlacement @relation(fields: [placementId], references: [id], onDelete: Restrict)
+  label String
+  isKey Boolean
+  issuedAt DateTime @default(now())
+  returnedAt DateTime?
+  condition String?
+  @@index([placementId, returnedAt])
+}
+
+model DormDeparture {
+  id String @id @default(cuid())
+  placementId String @unique
+  placement DormPlacement @relation(fields: [placementId], references: [id], onDelete: Restrict)
+  reason String
+  plannedOn DateTime
+  inspectedAt DateTime?
+  notes String?
+  completedAt DateTime?
+}
+
+model DormAudit {
+  id String @id @default(cuid())
+  actorId String?
+  actor User? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  requestKey String?
+  commandHash String?
+  action String
+  targetId String
+  detail String?
+  createdAt DateTime @default(now())
+  repairEvent DormRepairEvent?
+  ledgerEntry DormLedgerEntry?
+  @@unique([actorId, requestKey])
+  @@index([targetId, createdAt])
+}
+
+model DormWriteState {
+  id String @id
+  version Int @default(0)
+}
+
+model DormNewsTarget {
+  id String @id @default(cuid())
+  newsId String
+  news News @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  dormitoryId String
+  dormitory Dormitory @relation(fields: [dormitoryId], references: [id], onDelete: Restrict)
+  buildingId String?
+  building DormBuilding? @relation(fields: [buildingId], references: [id], onDelete: Restrict)
+  @@index([newsId])
+  @@index([dormitoryId, buildingId])
 }

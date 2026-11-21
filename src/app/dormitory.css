@@ -1,0 +1,56 @@
+.dormitory { display: grid; gap: 1rem; min-width: 0; overflow-wrap: anywhere; }
+.dormitory .dashboard-title { margin-bottom: 0; }
+.dorm-card { padding: clamp(.85rem, 2.2vw, 1.5rem); display: grid; gap: .85rem; min-width: 0; scroll-margin-top: 5rem; }
+.dormitory h2 { font-size: 1.18rem; font-weight: 700; }
+.dormitory h3 { font-size: 1rem; font-weight: 700; }
+.dorm-links { display: flex; flex-wrap: wrap; align-items: center; gap: .55rem 1rem; }
+.dorm-links a { color: var(--green-dark); text-decoration: underline; text-underline-offset: .2em; }
+.dorm-metrics { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr)); align-items: start; }
+.dorm-metrics dt { color: var(--muted); font-size: .86rem; }
+.dorm-metrics dd { margin: .15rem 0 0; font-weight: 660; }
+.dorm-row { display: grid; gap: .55rem; border-top: 1px solid var(--line, currentColor); padding-top: .7rem; }
+.dormitory details > summary { cursor: pointer; width: fit-content; max-width: 100%; font-weight: 620; }
+.dormitory details[open] > summary { margin-bottom: .65rem; }
+.dorm-form { display: flex; flex-wrap: wrap; align-items: end; gap: .55rem .75rem; margin-block: .5rem; min-width: 0; }
+.dorm-form label { display: grid; gap: .2rem; flex: 1 1 11rem; min-width: min(100%, 9rem); max-width: 100%; font-size: .89rem; }
+.dorm-form label:has(textarea) { flex-basis: 100%; }
+.dorm-form .dorm-check { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; margin: .35rem 0; }
+.dorm-form input:not([type="checkbox"]):not([type="hidden"]), .dorm-form select, .dorm-form textarea { display: block; width: 100%; min-width: 0; max-width: 100%; padding: .5rem .6rem; background: var(--surface); color: inherit; border: 1px solid var(--line, currentColor); border-radius: .45rem; }
+.dorm-form input[type="checkbox"] { flex-shrink: 0; }
+.dorm-form button { max-width: 100%; white-space: normal; }
+.dorm-form [role="alert"], .dorm-form [role="status"] { flex-basis: 100%; font-weight: 620; }
+.dormitory ul { display: grid; gap: .35rem; }
+.dormitory .dorm-long { white-space: pre-wrap; }
+.dormitory .dorm-subtle { font-size: .89rem; color: var(--muted); }
+.dorm-audience label { display: flex; align-items: center; gap: .45rem; }
+.dorm-audience label + label { padding-inline-start: 1.1rem; }
+.dorm-audience input[type="checkbox"] { width: auto; flex-shrink: 0; }
+
+.dorm-student { width: 100%; max-width: 1240px; margin-inline: auto; gap: 1rem; container-type: inline-size; }
+.dorm-student .dashboard-title h1 { margin-top: 0; }
+.dorm-overview { display: grid; gap: .95rem; padding: clamp(1rem, 2.2vw, 1.5rem); border-block-start: 3px solid var(--green); }
+.dorm-overview-heading { display: flex; align-items: center; gap: .75rem; }
+.dorm-overview-heading h2 { line-height: 1.3; font-size: clamp(1.06rem, 2.25vw, 1.35rem); }
+.dorm-overview-heading p { color: var(--muted); margin-top: .24rem; line-height: 1.55; }
+.dorm-overview-heading .icon-tile { width: 2.6rem; height: 2.6rem; }
+.dorm-overview .dorm-metrics { padding-top: .85rem; border-top: 1px solid var(--line); gap: .85rem 1rem; }
+.dorm-overview .dorm-metrics small { display: block; margin-top: .12rem; color: var(--muted); font-size: .83rem; font-weight: 500; }
+
+.dorm-student-grid, .dorm-student-column { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+@container (min-width: 50rem) {
+  .dorm-student-grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+}
+.dorm-student-section { min-width: 0; scroll-margin-top: 5rem; }
+.dorm-student-section > h2 {
+  display: flex; align-items: center; gap: .55rem; padding: .8rem 1rem;
+  border-radius: 8px 8px 0 0; background: var(--brand-soft, #edf1e8); font-size: 1rem; line-height: 1.35;
+}
+.dorm-student-section > h2 svg { color: var(--green-dark); }
+.dorm-student-section-body { display: grid; gap: .7rem; padding: .9rem 1rem; min-width: 0; line-height: 1.5; }
+.dorm-student-section-body > .text-link { justify-self: start; }
+.dorm-student .dorm-student-list { gap: .55rem; }
+.dorm-student-list li { display: grid; gap: .12rem; border-top: 1px solid var(--line); padding-top: .55rem; }
+.dorm-student-list small { color: var(--muted); font-size: .83rem; }
+.dorm-disclosure > summary {
+  padding: .45rem .7rem; color: var(--green-dark); background: var(--brand-soft, #edf1e8); border-radius: .45rem;
+}

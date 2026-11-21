@@ -90,6 +90,13 @@ export function ClearanceWorkspace({ role }: { role: Role }) {
         </div>
       </section>
       <div className="clearance-steps">{detail.steps.map(step => <article className="clearance-panel clearance-step" key={step.id} data-step={step.id}><div className="clearance-between"><h2>{step.name}</h2><Status value={step.status} step /></div><p className="muted">{step.description}</p>{step.needsClarification && <p className="clearance-attention">Требуется уточнение применимости деканатом</p>}{step.applicabilityNote && <p className="muted">{step.applicabilityNote}</p>}<p className="clearance-contact">{step.contact}</p>{step.decidedByName && <p className="muted">{step.decidedByName} · {date(step.decidedAt)}</p>}
+        {step.housing && <ul className="clearance-dormitory">
+          <li>{step.housing.active ? "Проживание активно" : "Проживание завершено"}</li>
+          <li>{step.housing.departed ? "Выезд подтверждён" : step.housing.inspected ? "Комната проверена" : "Сдача комнаты не подтверждена"}</li>
+          <li>{step.housing.keysOutstanding ? "Остались ключи к возврату" : "Невозвращённых ключей нет"}</li>
+          <li>{step.housing.propertyOutstanding ? "Осталось имущество к возврату" : "Невозвращённого имущества нет"}</li>
+          <li>{step.housing.hasDebt ? "Остались начисления к оплате" : "Остатка к оплате нет"}</li>
+        </ul>}
         {step.remarks.map(remark => <div key={remark.id} className={"clearance-remark" + (remark.resolvedAt ? " clearance-resolved" : "")}><div className="clearance-between"><h3>{remark.category}</h3><strong>{remark.resolvedAt ? "Замечание снято" : remark.responsePending ? "Ожидает повторной проверки" : "Требуется действие"}</strong></div><p>{remark.description}</p><p><strong>Что сделать: </strong>{remark.requiredAction}</p><p>{remark.contact}</p>{remark.dueOn && <p>Срок: {date(remark.dueOn)}</p>}{remark.amountMinor !== null && <p>Подтверждённая сумма: {(remark.amountMinor / 100).toLocaleString("ru-RU", { style: "currency", currency: "RUB" })}</p>}
           {!!remark.replies.length && <details><summary>Переписка ({remark.replies.length})</summary>{remark.replies.map(reply => <p key={reply.id}><strong>{reply.actorName}</strong> · {date(reply.createdAt)}<br />{reply.text}</p>)}</details>}
           {active && !remark.resolvedAt && student && !remark.responsePending && <button className="button button-outline" onClick={() => setModal({ kind: "REPLY", step, remarkId: remark.id })}>Сообщить об устранении</button>}

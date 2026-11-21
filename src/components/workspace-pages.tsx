@@ -32,7 +32,7 @@ export async function WorkspaceHome({ role }: { role: WorkspaceRole }) {
   return <>
     <div className="dashboard-title"><div><h1>{workspace.title}</h1></div></div>
     <ServiceNotifications compact home={roleHomes[role]} />
-    <div className="workspace-grid">{sections.map((item) => <Link key={item.slug} href={`${roleHomes[role]}/${item.slug}`} className="panel workspace-card"><span className="icon-tile"><Icon name={item.icon} /></span><h2>{item.title}</h2><p>{item.description}</p><span className="workspace-status">{["profile", "notifications", "clearance", "passes"].includes(item.slug) || role === "TEACHER" && ["materials", "schedule", "grades", "session"].includes(item.slug) || role === "ADMIN" && ["requests", "news"].includes(item.slug) || role === "TECHNICAL_STAFF" && item.slug === "services" || role === "DEANERY_STAFF" ? "Открыть" : "В разработке"} <Icon name="arrow" size={16} /></span></Link>)}</div>
+    <div className="workspace-grid">{sections.map((item) => <Link key={item.slug} href={`${roleHomes[role]}/${item.slug}`} className="panel workspace-card"><span className="icon-tile"><Icon name={item.icon} /></span><h2>{item.title}</h2><p>{item.description}</p><span className="workspace-status">{["profile", "notifications", "clearance", "passes", "dormitory"].includes(item.slug) || role === "TEACHER" && ["materials", "schedule", "grades", "session"].includes(item.slug) || role === "ADMIN" && ["requests", "news"].includes(item.slug) || role === "TECHNICAL_STAFF" && item.slug === "services" || role === "DEANERY_STAFF" ? "Открыть" : "В разработке"} <Icon name="arrow" size={16} /></span></Link>)}</div>
   </>;
 }
 

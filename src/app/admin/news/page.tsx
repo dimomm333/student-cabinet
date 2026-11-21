@@ -4,9 +4,17 @@ import { requireRole } from "@/lib/access";
 import { prisma } from "@/lib/prisma";
 import { AnnouncementForm } from "@/components/announcement-form";
 import CabinetPageLoading from "@/components/cabinet-page-loading";
+import { dormAnnouncementTargets } from "@/lib/dormitory-queries";
+import "@/app/dormitory.css";
 async function Content() {
-  await requireRole("ADMIN");
-  const departments = await prisma.academicDepartment.findMany({ select: { id: true, name: true, faculty: true }, orderBy: { name: "asc" } });
-  return <><div className="dashboard-title"><h1>Новости и объявления</h1></div><AnnouncementForm requestId={randomUUID()} departments={departments} /></>;
+  const user = await requireRole("ADMIN");
+  const [departments, dormitories, total] = await Promise.all([
+    prisma.academicDepartment.findMany({ select: { id: true, name: true, faculty: true }, orderBy: { name: "asc" } }),
+    dormAnnouncementTargets(prisma, user),
+    prisma.dormitory.count({ where: { archivedAt: null } }),
+  ]);
+  return <><div className="dashboard-title"><h1>Новости и объявления</h1></div>
+    <AnnouncementForm requestId={randomUUID()} departments={departments} dormitories={dormitories} allResidents={total > 0 && total === dormitories.length} />
+  </>;
 }
 export default function Page() { return <Suspense fallback={<CabinetPageLoading />}><Content /></Suspense>; }

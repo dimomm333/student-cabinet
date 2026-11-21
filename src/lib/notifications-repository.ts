@@ -4,6 +4,8 @@ import { isSessionWithinLifetime } from "./session-policy.ts";
 import { serviceProcessorScope } from "./services-permissions.ts";
 import { materialScope } from "./materials-permissions.ts";
 import { clearanceScope } from "./clearance-permissions.ts";
+import { dormRepairScope } from "./dormitory-access.ts";
+import { studentNewsScope } from "./news-repository.ts";
 import { allNotificationCategories, safeNotificationHref, serviceNotificationTitles, type NotificationCategory, type NotificationFeed } from "./notifications-shared.ts";
 
 export type NotificationDB = Prisma.TransactionClient;
@@ -21,7 +23,7 @@ export async function preferences(db: NotificationDB, userId: string) {
     emailCategories: saved ? parseCategories(saved.emailCategoriesJson) : [], personalEmail: saved?.personalEmail ?? false };
 }
 type Recipient = { id: string; role: Role; href: string; groupId?: string | null; departmentId?: string | null };
-export type NotificationInput = { sourceKey: string; source: "SERVICES" | "BRS" | "SCHEDULE" | "NEWS" | "SYSTEM" | "MATERIALS" | "CLEARANCE"; clearanceProcessId?: string; sourceId: string; type: string; category: NotificationCategory; title: string; body: string; mandatory: boolean; createdAt?: Date; recipients: Recipient[] };
+export type NotificationInput = { sourceKey: string; source: "SERVICES" | "BRS" | "SCHEDULE" | "NEWS" | "SYSTEM" | "MATERIALS" | "CLEARANCE" | "DORMITORY"; clearanceProcessId?: string; dormRepairId?: string; sourceId: string; type: string; category: NotificationCategory; title: string; body: string; mandatory: boolean; createdAt?: Date; recipients: Recipient[] };
 
 // Internal server API only. Call within the same transaction as the mutation;
 // never expose arbitrary recipients or event content through a client endpoint.
@@ -73,15 +75,20 @@ export async function notificationScope(db: NotificationDB, user: { id: string; 
   ] }, select: { id: true } }) : [];
   const requests = await db.serviceRequest.findMany({ where: { deletedAt: null, ...(user.role === "STUDENT" ? { ownerId: user.id } : { status: { not: "DRAFT" }, AND: [await serviceProcessorScope(db, user)] }) }, select: { id: true } });
   const materialPublications = user.role === "STUDENT" ? await db.materialPublication.findMany({ where: { items: { some: { material: await materialScope(db, user) } } }, select: { id: true } }) : [];
+  const news = user.role === "STUDENT" ? await db.news.findMany({ where: {
+    AND: [await studentNewsScope(db, user.id), { publicationKey: { not: null }, isDemo: false }],
+  }, select: { id: true } }) : [];
   return { recipientId: user.id, recipientRole: user.role, OR: [
     { event: { source: "CLEARANCE", clearanceProcess: clearanceScope(user) } },
     { event: { source: "SYSTEM" } },
+    { event: { source: "DORMITORY", dormRepair: dormRepairScope(user) } },
     { event: { source: "SERVICES", sourceId: { in: requests.map(r => r.id) } } },
     ...(user.role === "STUDENT" ? [
       { event: { source: "BRS", sourceId: { in: plans.map(p => p.id) } } },
       { event: { source: "MATERIALS", sourceId: { in: materialPublications.map(p => p.id) } } },
       { event: { source: "SCHEDULE" }, scopeGroupId: profile?.groupId ?? "" },
-      { event: { source: "NEWS" }, OR: [{ scopeDepartmentId: null }, { scopeDepartmentId: profile?.group?.departmentId ?? "" }] },
+      { event: { source: "NEWS", sourceId: { in: news.map(item => item.id) } } },
+      { event: { source: "DORMITORY", dormRepairId: null } },
     ] : []),
     ...(user.role === "TEACHER" ? [{ event: { source: "SCHEDULE" } }] : []),
   ] };

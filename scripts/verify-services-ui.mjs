@@ -61,10 +61,11 @@ try {
   const { page } = await signed(student.email), { page: staff, context: staffContext } = await signed(dean.email);
   await page.goto(base + '/dashboard/services');
   await expect(page.locator('.services-category')).toHaveCount(4);
-  await expect(page.locator('.services-category li')).toHaveCount(15);
-  await expect(page.locator('.services-appeal h2')).toHaveText('Не нашли подходящую услугу?');
-  await page.getByRole('button', { name: 'Черновики', exact: true }).click(); await expect(page.locator('.services-empty')).toBeVisible();
-  await page.getByRole('button', { name: 'Каталог услуг', exact: true }).click(); await expect(page.locator('.services-category')).toHaveCount(4); await expect(page.getByText('Загружаем каталог…', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.services-category li')).toHaveCount(serviceCatalog.filter(service => service.category).length);
+  await expect(page.locator('.services-appeal h2')).toHaveText('Обращение в деканат');
+  await expect(page.locator('.services-appeal p').first()).toContainText('в свободной форме');
+  await page.getByRole('tab', { name: 'Черновики', exact: true }).click(); await expect(page.locator('.services-empty')).toBeVisible();
+  await page.getByRole('tab', { name: 'Каталог услуг', exact: true }).click(); await expect(page.locator('.services-category')).toHaveCount(4); await expect(page.getByText('Загружаем каталог…', { exact: true })).toHaveCount(0);
   await noOverflow(page); await page.screenshot({ path: resolve(root, 'catalog-1366.png'), fullPage: true });
   await page.getByRole('searchbox', { name: 'Поиск услуг' }).fill('матпомощь');
   await expect(page.locator('.services-category li')).toHaveCount(1);
@@ -100,14 +101,14 @@ try {
   await staff.getByRole('checkbox', { name: /Обстоятельства/ }).check();
   await staff.getByRole('checkbox', { name: /Подтверждающий документ/ }).check();
   await staff.getByLabel('Что необходимо уточнить').fill('Уточните обстоятельства и замените скан.'); await saved(staff, 'Применить решение');
-  await page.getByRole('button', { name: 'Обновить данные', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Обновить данные', exact: true })).toHaveCount(0);
   await expect(page.locator('.services-notice')).toContainText('Уточните обстоятельства');
   assert.equal(await page.getByLabel(/^Основание или причина/).count(), 0);
   await field(page, 'Обстоятельства', 'Уточнённые сведения студента');
   await page.getByRole('button', { name: 'Удалить / заменить' }).click(); await expect(page.locator('.services-success')).toContainText('снято');
   await page.getByLabel(/^Загрузить:/).setInputFiles({ name: 'updated.png', mimeType: 'image/png', buffer: png }); await expect(page.locator('.services-success')).toContainText('загружен');
   await page.getByLabel('Подтверждаю актуальность показанных официальных данных').check(); await saved(page, 'Отправить уточнение');
-  await staff.getByRole('button', { name: 'Обновить данные', exact: true }).click();
+  await expect(staff.getByRole('button', { name: 'Обновить данные', exact: true })).toHaveCount(0);
   await expect(staff.locator('.services-request-heading .services-status')).toHaveText('На рассмотрении');
   await staff.getByLabel('Действие', { exact: true }).selectOption('IN_PROGRESS'); await saved(staff, 'Применить решение');
   await staff.getByLabel('Добавить итоговый документ', { exact: true }).setInputFiles({ name: 'result.png', mimeType: 'image/png', buffer: png }); await expect(staff.locator('.services-success')).toContainText('загружен');
@@ -124,12 +125,13 @@ try {
   for (const config of serviceCatalog) {
     await page.goto(base + '/dashboard/services?service=' + config.code); await page.getByRole('button', { name: 'Создать черновик' }).click(); await waitDetail(page);
     for (const f of config.fields) assert.equal(await page.getByLabel(new RegExp('^' + escaped(f.label))).first().count(), 1, config.code + '.' + f.key);
+    if (config.documents.some(slot => slot.photoOnly)) await expect(page.getByRole('button', { name: 'Прикрепить фотографии' })).toBeVisible();
     if (config.code === 'pass-reissue') {
       await page.getByLabel(/^Фотография/).selectOption('NEW'); await expect(page.getByLabel(/^Загрузить: Новая фотография/)).toBeVisible();
       await page.getByLabel(/^Фотография/).selectOption('KEEP'); await expect(page.getByLabel(/^Загрузить: Новая фотография/)).toHaveCount(0);
     }
   }
-  pass('All 16 API-configured forms render their own fields; conditional pass photograph');
+  pass('All API-configured forms render their own fields; conditional pass photograph');
   await page.goto(base + '/dashboard/services'); await expect(page.locator('.services-category')).toHaveCount(4);
   await expect(page.locator('.services-appeal textarea')).toHaveCount(0);
   const appealButton = page.getByRole('button', { name: 'Написать обращение в деканат', exact: true });
@@ -146,10 +148,21 @@ try {
   await page.getByRole('button', { name: 'Сохранить изменения', exact: true }).click(); await expect(page.locator('.services-error')).toContainText('Нет связи'); await expect(page.getByLabel(/^Тема/).first()).toHaveValue('Сохранить мой ввод');
   await saved(page); await page.unroute('**/api/services');
   const original = await db.serviceRequest.findUniqueOrThrow({ where: { id: appealId } });
-  await db.serviceRequest.update({ where: { id: appealId }, data: { version: { increment: 1 } } });
+  let editConflict = false;
+  await page.route('**/api/services', async route => {
+    if (!editConflict && route.request().method() === 'POST' && route.request().postDataJSON()?.operation === 'SAVE') {
+      editConflict = true;
+      await db.serviceRequest.update({ where: { id: appealId }, data: {
+        version: { increment: 1 }, fieldsJson: JSON.stringify({ ...JSON.parse(original.fieldsJson), message: 'Вопрос из другого окна' }),
+      } });
+    }
+    await route.continue();
+  });
   await field(page, 'Тема', 'После конфликта'); await page.getByRole('button', { name: 'Сохранить изменения', exact: true }).click(); await expect(page.locator('.services-error')).toContainText('изменено');
   await page.getByRole('button', { name: 'Обновить версию, сохранив мой ввод', exact: true }).click(); await expect(page.getByLabel(/^Тема/).first()).toHaveValue('После конфликта'); await saved(page);
+  await expect(page.getByLabel(/^Вопрос/)).toHaveValue('Вопрос из другого окна');
   assert.equal((await db.serviceRequest.findUniqueOrThrow({ where: { id: appealId } })).version, original.version + 2);
+  await page.unroute('**/api/services');
   await page.getByLabel(/^Загрузить:/).setInputFiles({ name: 'fake.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7') }); await expect(page.locator('.services-error')).toContainText('PDF');
   await page.getByLabel('Подтверждаю актуальность показанных официальных данных').check(); await saved(page, 'Отправить заявление');
   await staff.goto(base + '/deanery/requests?requestId=' + appealId); await waitDetail(staff); await staff.getByLabel('Действие', { exact: true }).selectOption('IN_REVIEW'); await saved(staff, 'Применить решение'); await staff.getByLabel('Действие', { exact: true }).selectOption('REJECTED'); await expect(staff.getByRole('button', { name: 'Применить решение' })).toBeDisabled(); await staff.getByLabel('Причина отказа').fill('Указанная услуга не относится к полномочиям подразделения.'); await saved(staff, 'Применить решение');
@@ -262,7 +275,8 @@ try {
   await expect(page.locator('.services-success')).toContainText('Повторно загружать файл не нужно');
   await expect(page.locator('.services-upload-progress')).toHaveCount(0); await expect(page.locator('.services-error')).toHaveCount(0);
   await page.unroute('**/api/services?view=request&*');
-  await page.getByRole('button', { name: 'Обновить данные', exact: true }).click();
+  const refreshAttachments = page.getByRole('button', { name: 'Повторить чтение приложений' });
+  if (await refreshAttachments.isVisible()) await refreshAttachments.click();
   await expect(page.locator('.services-file a').filter({ hasText: 'saved-refresh.pdf' })).toBeVisible();
   assert.equal(await db.serviceDocument.count({ where: { requestId: autoId, name: 'saved-refresh.pdf' } }), 1);
   // Force a real server-side version conflict before UPLOAD commits.
@@ -351,10 +365,19 @@ try {
   await page.getByLabel(/^Загрузить:/).setInputFiles({ name: 'interrupted.png', mimeType: 'image/png', buffer: png }); await expect(page.locator('.services-upload-progress')).toContainText('Ошибка');
   await page.unroute('**/api/services?upload=*'); await page.getByLabel(/^Загрузить:/).setInputFiles({ name: 'retry.png', mimeType: 'image/png', buffer: png }); await expect(page.locator('.services-upload-progress')).toHaveCount(0); await expect(page.locator('.services-success')).toContainText('Документ загружен');
   await page.setViewportSize({ width: 360, height: 800 }); await noOverflow(page); await page.screenshot({ path: resolve(root, 'upload-360.png'), fullPage: true }); await page.setViewportSize({ width: 1366, height: 900 });
+  let tabConflict = false;
+  await reopened.route('**/api/services', async route => {
+    if (!tabConflict && route.request().method() === 'POST' && route.request().postDataJSON()?.operation === 'SAVE') {
+      tabConflict = true;
+      await db.serviceRequest.update({ where: { id: autoId }, data: { version: { increment: 1 } } });
+    }
+    await route.continue();
+  });
   await field(reopened, 'Тема', 'Изменения в конкурирующей вкладке');
   await expect(reopened.locator('.services-error')).toContainText('изменено');
   assert.notEqual(JSON.parse((await db.serviceRequest.findUniqueOrThrow({ where: { id: autoId } })).fieldsJson).subject, 'Изменения в конкурирующей вкладке');
   await reopened.close();
+  await page.reload(); await waitDetail(page);
   // Latest keystroke is saved before submit, without a second catalogue warning.
   await page.getByLabel('Подтверждаю актуальность показанных официальных данных').check();
   await field(page, 'Тема', 'Последний ввод перед отправкой'); await page.getByRole('button', { name: 'Отправить заявление', exact: true }).click();
@@ -378,7 +401,7 @@ try {
   let deletionSave = false;
   await page.route('**/api/services', async route => { if (route.request().method() === 'POST' && route.request().postDataJSON()?.operation === 'SAVE') { deletionSave = true; await new Promise(r => setTimeout(r, 1000)); } await route.continue(); });
   await field(page, 'Тема', 'Удаление при ожидающем сохранении'); await expect.poll(() => deletionSave).toBe(true);
-  await page.getByRole('button', { name: 'Удалить черновик', exact: true }).click(); await page.getByRole('button', { name: 'Да, удалить', exact: true }).click(); await expect(page.locator('.services-tabs button[aria-current=page]')).toHaveText('Черновики'); assert((await db.serviceRequest.findUniqueOrThrow({ where: { id: deletedId } })).deletedAt); await page.unroute('**/api/services'); await new Promise(r => setTimeout(r, 1000)); assert.equal((await page.context().request.get(base + '/api/services?view=request&id=' + deletedId, { maxRetries: 2 })).status(), 404);
+  await page.getByRole('button', { name: 'Удалить черновик', exact: true }).click(); await page.getByRole('button', { name: 'Да, удалить', exact: true }).click(); await expect(page.locator('.services-tabs button[aria-selected=true]')).toHaveText('Черновики'); assert((await db.serviceRequest.findUniqueOrThrow({ where: { id: deletedId } })).deletedAt); await page.unroute('**/api/services'); await new Promise(r => setTimeout(r, 1000)); assert.equal((await page.context().request.get(base + '/api/services?view=request&id=' + deletedId, { maxRetries: 2 })).status(), 404);
   await page.goto(base + '/dashboard/profile'); await expect(page.locator('.services-military')).toContainText('Сведения не предоставлены');
   for (const width of [360, 1366]) {
     await page.setViewportSize({ width, height: 900 });
@@ -428,6 +451,78 @@ try {
   assert.equal((await exitSession.context.request.post(base + '/api/auth/sign-in/email', { headers: { Origin: base }, data: { email: student.email, password } })).status(), 200);
   await exitSession.page.goto(logoutDraftUrl); await waitDetail(exitSession.page); await expect(exitSession.page.getByLabel(/^Тема/)).toHaveValue('Ввод непосредственно перед выходом');
   pass('Immediate logout flushes pending fields, clears emergency copies and restores server draft after new login');
+  await page.goto(base + '/dashboard/services?service=dorm-move-in');
+  await page.getByRole('button', { name: 'Создать черновик' }).click(); await waitDetail(page);
+  const housingId = new URL(page.url()).searchParams.get('requestId');
+  await field(page, 'Основание или причина', 'Нужно место в общежитии');
+  const picker = page.locator('.services-photo-picker input');
+  const webp = await sharp(png).webp().toBuffer();
+  const housingJpeg = await sharp(png).jpeg().toBuffer();
+  const picture = (name, mimeType, buffer) => ({ name, mimeType, buffer });
+  const photoRows = page.locator('.services-document-slot .services-file');
+  await picker.setInputFiles(picture('first.png', 'image/png', png));
+  await expect(page.locator('.services-photo-list')).toContainText('first.png');
+  await expect.poll(() => page.locator('.services-photo-list img').evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Сохранить фотографии' }).click();
+  await expect(photoRows).toHaveCount(1);
+  await picker.setInputFiles([
+    picture('second.webp', 'image/webp', webp),
+    picture('third.jpg', 'image/jpeg', housingJpeg),
+    picture('discard.png', 'image/png', png),
+  ]);
+  await page.getByRole('button', { name: 'Убрать discard.png' }).click();
+  await expect(page.locator('.services-photo-list li')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Сохранить фотографии' }).click();
+  await expect(photoRows).toHaveCount(3);
+  await photoRows.filter({ hasText: 'first.png' }).getByRole('button', { name: 'Снять фотографию' }).click();
+  await expect(photoRows).toHaveCount(2);
+  await page.reload(); await waitDetail(page);
+  await expect(photoRows).toHaveCount(2);
+  const activeHousingFiles = await db.serviceDocument.findMany({ where: { requestId: housingId, removedAt: null } });
+  const webpDoc = activeHousingFiles.find(doc => doc.name === 'second.webp');
+  const imageUrl = base + '/api/services?view=photo&id=' + webpDoc.id;
+  assert.equal((await staffContext.request.get(imageUrl)).status(), 404);
+  const draftVersion = (await db.serviceRequest.findUniqueOrThrow({ where: { id: housingId } })).version;
+  const uploadPhoto = (name, mimeType, bytes) => page.context().request.post(base + '/api/services?' + new URLSearchParams({
+    upload: '1', id: housingId, version: String(draftVersion), requestId: crypto.randomUUID(), slot: 'housing-photos', kind: 'STUDENT',
+  }), { headers: { Origin: base, 'Content-Type': mimeType, 'X-File-Name': name, Connection: 'close' }, data: bytes });
+  assert.equal((await uploadPhoto('not-photo.svg', 'image/svg+xml', Buffer.from('<svg/>'))).status(), 415);
+  assert.equal((await uploadPhoto('spoof.webp', 'image/webp', png)).status(), 400);
+  assert.equal((await uploadPhoto('repeated.webp', 'image/webp', webp)).status(), 422);
+  assert.equal((await uploadPhoto('large.webp', 'image/webp', Buffer.alloc(8 * 1024 * 1024 + 1))).status(), 413);
+  for (const theme of ['light', 'dark']) {
+    await page.setViewportSize({ width: 360, height: 900 });
+    if (await page.locator('html').getAttribute('data-theme') !== theme) {
+      await page.locator('.theme-toggle').click();
+      await page.getByRole('menuitemradio', { name: theme === 'light' ? 'Светлая' : 'Тёмная', exact: true }).click();
+    }
+    await expect(page.getByRole('button', { name: 'Прикрепить фотографии' })).toBeVisible();
+    await noOverflow(page);
+    await page.screenshot({ path: resolve(root, 'housing-photos-' + theme + '-360.png'), fullPage: true });
+  }
+  await page.getByLabel('Подтверждаю актуальность показанных официальных данных').check();
+  await saved(page, 'Отправить заявление');
+  await staff.goto(base + '/deanery/requests?requestId=' + housingId);
+  await waitDetail(staff);
+  await expect(staff.getByRole('heading', { name: 'Приложенные фотографии' })).toBeVisible();
+  await expect(staff.getByRole('link', { name: /second.webp/ })).toHaveAttribute('href', '/api/services?view=photo&id=' + webpDoc.id);
+  const authorizedPhoto = await staffContext.request.get(imageUrl);
+  assert.equal(authorizedPhoto.status(), 200);
+  assert.equal(authorizedPhoto.headers()['content-type'], 'image/webp');
+  const openPhoto = staff.waitForEvent('popup');
+  await staff.getByRole('link', { name: /second.webp/ }).click();
+  const photoPage = await openPhoto;
+  await expect.poll(() => photoPage.locator('img').evaluate(img => img.naturalWidth)).toBeGreaterThan(0);
+  await photoPage.close();
+  assert.equal((await foreign.context.request.get(imageUrl)).status(), 404);
+  assert.equal((await fetch(imageUrl)).status, 401);
+  assert.equal((await fetch(base + '/' + webpDoc.key)).status, 404);
+  assert.equal((await foreign.context.request.post(base + '/api/services', { headers: { Origin: base }, data: {
+    operation: 'SAVE', id: housingId, version: draftVersion, requestId: crypto.randomUUID(), fields: { reason: 'Чужое заявление' },
+  } })).status(), 404);
+  await db.serviceGrant.updateMany({ where: { userId: dean.id, serviceCode: 'dorm-move-in' }, data: { readFiles: false } });
+  assert.equal((await staffContext.request.get(imageUrl)).status(), 404);
+  pass('Housing photos: local previews, single and multiple uploads, removal, draft reload, WebP/JPEG, access and server validation');
   await db.serviceGrant.updateMany({ where: { userId: dean.id }, data: { active: false } }); await staff.goto(base + '/deanery/requests?requestId=' + id); await expect(staff.locator('.services-error')).toContainText('недоступно');
   pass('Draft deletion, read-only real/absent military record, foreign applications/documents and revoked staff access');
   await verifyImagePreparation({ page, db, student, base, root });

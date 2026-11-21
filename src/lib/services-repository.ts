@@ -2,9 +2,11 @@ import "server-only";
 import { emitServiceNotification } from "./notifications-repository.ts";
 import { serviceProcessorScope } from "./services-permissions.ts";
 import type { Prisma, PrismaClient, ServiceRequest } from "../generated/prisma/client.ts";
-import { configFor, ServiceError, serviceCatalog, validateFields, validateDocuments, type ServiceConfig } from "./services-catalog.ts";
+import { configFor, ServiceError, serviceCatalog, servicePhotoMimeTypes, validateFields, validateDocuments, type ServiceConfig } from "./services-catalog.ts";
 import { digest, type ServiceStorage } from "./services-storage.ts";
 import { isSessionWithinLifetime } from "./session-policy.ts";
+import { currentPlacement } from "./dormitory-access.ts";
+import { dormitoryServiceCodes } from "./dormitory-shared.ts";
 
 type DB = Prisma.TransactionClient;
 // Only an explicit, verified official record can waive the requirement. Gender
@@ -128,6 +130,14 @@ export async function executeServiceCommand(db: PrismaClient, actor: ServiceActo
         case "SUBMIT": {
           editable(request, owner);
           await checkMilitaryEligibility(tx, user.id, config.code);
+          if (dormitoryServiceCodes.some(code => code === config.code)) {
+            const resident = await tx.dormPlacement.count({ where: currentPlacement(user.id) });
+            if (config.code === "dorm-transfer" ? !resident : resident) throw new ServiceError("Услуга недоступна при текущем состоянии проживания.", 409);
+            if (await tx.serviceRequest.count({ where: {
+              id: { not: request.id }, ownerId: user.id, serviceCode: config.code, submittedAt: { not: null },
+              deletedAt: null, status: { not: "REJECTED" }, dormPlacements: { none: { status: { in: ["ACTIVE", "ENDED"] } } },
+            } })) throw new ServiceError("У вас уже есть действующее заявление по этой услуге.", 409);
+          }
           const definition = await tx.serviceDefinition.findUniqueOrThrow({ where: { code_version: { code: config.code, version: config.version } } });
           if (!definition.enabled) throw new ServiceError("Услуга отключена.", 409);
           const fields = validateFields(config, JSON.parse(request.fieldsJson), false);
@@ -176,7 +186,14 @@ export async function executeServiceCommand(db: PrismaClient, actor: ServiceActo
           if (command.kind !== kind) throw new ServiceError("Недопустимый вид документа.");
           if (owner) {
             editable(request, owner, command.slot);
-            if (!config.documents.some(slot => slot.key === command.slot)) throw new ServiceError("Неизвестный вид приложения.");
+            const slot = config.documents.find(slot => slot.key === command.slot);
+            if (!slot) throw new ServiceError("Неизвестный вид приложения.");
+            if (slot.photoOnly) {
+              if (!servicePhotoMimeTypes.includes(file.mime)) throw new ServiceError("Приложите фотографию JPEG, PNG или WebP.", 415);
+              if (await tx.serviceDocument.count({ where: { requestId: request.id, slot: slot.key, kind, sha256: file.sha256, removedAt: null } })) {
+                throw new ServiceError("Эта фотография уже прикреплена.", 422);
+              }
+            } else if (file.mime === "image/webp") throw new ServiceError("WebP доступен только для приложенных фотографий.", 415);
           } else if (request.status !== "IN_PROGRESS" || command.slot !== "result") throw new ServiceError("Итоговые файлы добавляются в работе.", 409);
           const count = await tx.serviceDocument.count({ where: { requestId: request.id, removedAt: null } });
           if (count >= 20) throw new ServiceError("Не более 20 активных файлов.", 409);
@@ -214,15 +231,21 @@ export async function getServiceRequest(db: PrismaClient, actor: ServiceActor, i
   return db.$transaction(async tx => {
     const request = await visibleRequest(tx, actor, id);
     const user = await liveActor(tx, actor);
+    const config = configFor(request.serviceCode, request.schemaVersion);
     let readFiles = user.role === "STUDENT";
     if (!readFiles) readFiles = Boolean(await tx.serviceRequest.findFirst({ where: { id, AND: [await processorScope(tx, actor, true)] } }));
-    const documents = readFiles ? await tx.serviceDocument.findMany({ where: { requestId: id }, select: { id: true, name: true, mime: true, size: true, kind: true, slot: true, removedAt: true, createdAt: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 51, skip: page * 50 }) : [];
+    const documents = readFiles ? await tx.serviceDocument.findMany({
+      where: { requestId: id },
+      select: { id: true, name: true, mime: true, size: true, kind: true, slot: true, removedAt: true, createdAt: true },
+      orderBy: [...(config.documents.some(slot => slot.photoOnly) ? [{ removedAt: "asc" as const }] : []), { createdAt: "asc" }, { id: "asc" }],
+      take: 51, skip: page * 50,
+    }) : [];
     // Keep all audit rows. Filter technical saves before offset/limit so a page
     // full of autosaves cannot hide later meaningful events from the UI.
     const history = await tx.serviceHistory.findMany({ where: { requestId: id, action: { not: "SAVE" } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 51, skip: page * 50 });
     const latestClarification = await tx.serviceHistory.findFirst({ where: { requestId: id, action: "CLARIFICATION_REQUIRED" }, select: { text: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
-    const profile = user.role === "STUDENT" ? await profileFor(tx, request.ownerId, configFor(request.serviceCode, request.schemaVersion)) : null;
-    return { ...request, eligibility: user.role === "STUDENT" && request.serviceCode === "military-change" ? await militaryEligibility(tx, user.id) : undefined, config: configFor(request.serviceCode, request.schemaVersion), latestClarification, permissions: { readFiles, student: user.role === "STUDENT" }, fields: JSON.parse(request.fieldsJson), profileSnapshot: request.profileJson ? JSON.parse(request.profileJson) : null, clarification: request.clarificationJson ? JSON.parse(request.clarificationJson) : null, fieldsJson: undefined, profileJson: undefined, clarificationJson: undefined, confirmationHash: undefined, profilePreview: profile && { values: profile.snapshot, confirmationHash: profile.hash, correctionService: "personal-change" }, documents: documents.slice(0, 50), history: history.slice(0, 50), historyHasMore: history.length > 50, documentsHasMore: documents.length > 50, page, pageSize: 50 };
+    const profile = user.role === "STUDENT" ? await profileFor(tx, request.ownerId, config) : null;
+    return { ...request, eligibility: user.role === "STUDENT" && request.serviceCode === "military-change" ? await militaryEligibility(tx, user.id) : undefined, config, latestClarification, permissions: { readFiles, student: user.role === "STUDENT" }, fields: JSON.parse(request.fieldsJson), profileSnapshot: request.profileJson ? JSON.parse(request.profileJson) : null, clarification: request.clarificationJson ? JSON.parse(request.clarificationJson) : null, fieldsJson: undefined, profileJson: undefined, clarificationJson: undefined, confirmationHash: undefined, profilePreview: profile && { values: profile.snapshot, confirmationHash: profile.hash, correctionService: "personal-change" }, documents: documents.slice(0, 50), history: history.slice(0, 50), historyHasMore: history.length > 50, documentsHasMore: documents.length > 50, page, pageSize: 50 };
   });
 }
 export async function listServiceRequests(db: PrismaClient, actor: ServiceActor, filters: { page: number; code?: string; status?: string; from?: Date; to?: Date }) {
@@ -234,11 +257,15 @@ export async function listServiceRequests(db: PrismaClient, actor: ServiceActor,
     return { items: await tx.serviceRequest.findMany({ where, select: { id: true, serviceCode: true, schemaVersion: true, status: true, version: true, createdAt: true, submittedAt: true, updatedAt: true, assigneeId: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: filters.page * 50, take: 50 }), total: await tx.serviceRequest.count({ where }), page: filters.page, pageSize: 50 };
   });
 }
-export async function downloadServiceDocument(db: PrismaClient, actor: ServiceActor, id: string, storage: ServiceStorage) {
+export async function downloadServiceDocument(db: PrismaClient, actor: ServiceActor, id: string, storage: ServiceStorage, preview = false) {
   return db.$transaction(async tx => {
     const doc = await tx.serviceDocument.findUnique({ where: { id } });
     if (!doc) throw new ServiceError("Документ недоступен.", 404);
-    await visibleRequest(tx, actor, doc.requestId, true);
+    const request = await visibleRequest(tx, actor, doc.requestId, true);
+    if (preview && (doc.removedAt || doc.kind !== "STUDENT" || !servicePhotoMimeTypes.includes(doc.mime)
+      || !configFor(request.serviceCode, request.schemaVersion).documents.some(slot => slot.key === doc.slot && slot.photoOnly))) {
+      throw new ServiceError("Фотография недоступна.", 404);
+    }
     const bytes = await storage.get(doc.key);
     if (bytes.length !== doc.size || digest(bytes) !== doc.sha256) throw new ServiceError("Хранилище документа недоступно.", 503);
     return { bytes, name: doc.name, mime: doc.mime };

@@ -1,25 +1,40 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { categories } from "@/lib/services-catalog";
+import { categories, deaneryAppealDescription } from "@/lib/services-catalog";
 import { serviceFetch, ServiceApiError, serviceUrl, serviceStatusLabels, serviceDate, type CatalogService, type RequestRow } from "@/lib/services-ui";
 import { ServiceRequestScreen } from "./services-request-screen";
+import { SectionTabs } from "./section-navigation";
 import { Icon } from "./icon";
 import { recoveryKey, readRecovery, writeRecovery, clearRecovery } from "@/lib/services-recovery";
 
-export function ServicesWorkspace({ path, student, requestId, serviceCode, initialTab, ownerId }: { path: string; student: boolean; requestId: string; serviceCode: string; initialTab: string; ownerId: string }) {
+const serviceTabs = [
+  { id: "catalog", label: "Каталог услуг" }, { id: "requests", label: "Мои заявления" }, { id: "drafts", label: "Черновики" },
+] as const;
+
+export function ServicesWorkspace({ path, student, requestId, serviceCode, ownerId }: { path: string; student: boolean; requestId: string; serviceCode: string; ownerId: string }) {
   const router = useRouter();
+  const params = useSearchParams();
+  const tabs = params.getAll("tab");
+  const tab = !student ? "requests" : tabs.length === 1 && (tabs[0] === "drafts" || tabs[0] === "requests") ? tabs[0] : "catalog";
   const [catalog, setCatalog] = useState<CatalogService[]>([]), [matches, setMatches] = useState<CatalogService[]>([]);
   const [error, setError] = useState(""), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false);
   const [query, setQuery] = useState(""), [catalogReviewed, setCatalogReviewed] = useState(false);
-  const [tab, setTab] = useState(student ? initialTab === "drafts" ? "drafts" : initialTab === "requests" ? "requests" : "catalog" : "requests");
+  const [previousTab, setPreviousTab] = useState(tab);
   const [rows, setRows] = useState<RequestRow[]>([]), [total, setTotal] = useState(0), [page, setPage] = useState(0);
   const [filters, setFilters] = useState({ status: "", code: "", from: "", to: "" });
   const createKey = useRef<{ code: string; key: string } | null>(null), inFlight = useRef(false);
   const [reload, setReload] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null), [deleting, setDeleting] = useState<string | null>(null);
   const deleteCommands = useRef(new Map<string, { operation: string; id: string; version: number; requestId: string }>());
+  if (previousTab !== tab) {
+    setPreviousTab(tab);
+    setLoading(tab !== "catalog");
+    setPage(0);
+    setError("");
+    setDeleteConfirm(null);
+  }
   useEffect(() => {
     let active = true;
     serviceFetch<{ items: CatalogService[] }>("/api/services").then(data => { if (active) { setCatalog(data.items); setMatches(data.items); setError(""); } }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); });
@@ -56,7 +71,13 @@ export function ServicesWorkspace({ path, student, requestId, serviceCode, initi
     }
     finally { setBusy(false); inFlight.current = false; }
   }
-  const changeTab = (value: string) => { setLoading(value !== "catalog"); setTab(value); setPage(0); setError(""); };
+  function changeTab(value: string) {
+    if (value === tab) return;
+    const url = new URL(window.location.href);
+    if (value === "catalog") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", value);
+    window.history.pushState(null, "", url);
+  }
   async function deleteDraft(row: RequestRow) {
     if (inFlight.current || !student || tab !== "drafts" || row.status !== "DRAFT") return;
     inFlight.current = true; setDeleting(row.id); setError("");
@@ -74,12 +95,13 @@ export function ServicesWorkspace({ path, student, requestId, serviceCode, initi
     } finally { inFlight.current = false; setDeleting(null); }
   }
   const selected = catalog.find(s => s.code === serviceCode);
+  const Tabs = student ? SectionTabs : Passthrough;
   return <div className="services-workspace">
     <div className="dashboard-title"><div><span className="eyebrow">{student ? "Кабинет студента" : "Обработка заявлений"}</span><h1>{student ? "Услуги" : path.startsWith("/deanery") ? "Заявки и заявления" : path.startsWith("/admin") ? "Заявки студентов" : "Заявления студентов"}</h1><p>{student ? "Справки, заявления и обращения." : "Только заявления в пределах ваших действующих полномочий."}</p></div></div>
     {requestId ? <ServiceRequestScreen key={requestId} id={requestId} path={path} student={student} ownerId={ownerId} /> : <>
       {error && <div className="services-error" role="alert">{error} <button type="button" onClick={() => setReload(n => n + 1)}>Повторить загрузку</button></div>}
-      {serviceCode ? selected ? <section className="panel services-panel"><Link href={path} className="button button-primary services-back">← К каталогу услуг</Link><h2>{selected.title}</h2><p>{selected.description}</p>{selected.eligibility === "NOT_REQUIRED" ? <p className="services-notice">Воинский учёт для вас не требуется</p> : selected.eligibility === "UNKNOWN" ? <p className="services-notice">Статус воинского учёта пока не подтверждён. Вы можете подать заявление для ручной проверки уполномоченным сотрудником. Отсутствие записи не означает освобождение от учёта.</p> : null}{selected.eligibility !== "NOT_REQUIRED" && <><p>Подготовьте сведения: {selected.fields.map(f => f.label).join(", ")}.</p><p>{selected.documents.length ? "Приложения: " + selected.documents.map(d => d.label).join(", ") + "." : "Обязательных приложений нет."}</p>{!selected.available && <p className="services-notice">{!selected.enabled ? "Приём по услуге отключён." : "Маршрут обработки пока не настроен. Можно подготовить черновик."}</p>}<button className="button button-primary" disabled={busy || !selected.enabled} onClick={() => void create(selected.code)}>{busy ? "Создаём…" : "Создать черновик"}</button></>}</section> : <p role="status">{loading ? "Загружаем услугу…" : "Услуга не найдена."}</p> : <>
-        {student && <nav className="services-tabs" aria-label="Услуги и заявления">{[["catalog", "Каталог услуг"], ["requests", "Мои заявления"], ["drafts", "Черновики"]].map(([value, label]) => <button key={value} type="button" aria-current={tab === value ? "page" : undefined} onClick={() => changeTab(value)}>{label}</button>)}</nav>}
+      {serviceCode ? selected ? <section className="panel services-panel"><Link href={path} className="button button-primary services-back">← К каталогу услуг</Link><h2>{selected.title}</h2><p>{selected.description}</p>{selected.eligibility === "NOT_REQUIRED" ? <p className="services-notice">Воинский учёт для вас не требуется</p> : selected.eligibility === "UNKNOWN" ? <p className="services-notice">Статус воинского учёта пока не подтверждён. Вы можете подать заявление для ручной проверки уполномоченным сотрудником. Отсутствие записи не означает освобождение от учёта.</p> : null}{selected.eligibility !== "NOT_REQUIRED" && <><p>Подготовьте сведения: {selected.fields.map(f => f.label).join(", ")}.</p><p>{selected.documents.length ? "Приложения: " + selected.documents.map(d => d.label + (d.photoOnly ? " (необязательно)" : "")).join(", ") + "." : "Обязательных приложений нет."}</p>{!selected.available && <p className="services-notice">{!selected.enabled ? "Приём по услуге отключён." : "Маршрут обработки пока не настроен. Можно подготовить черновик."}</p>}<button className="button button-primary" disabled={busy || !selected.enabled} onClick={() => void create(selected.code)}>{busy ? "Создаём…" : "Создать черновик"}</button></>}</section> : <p role="status">{loading ? "Загружаем услугу…" : "Услуга не найдена."}</p> : <>
+        <Tabs className="services-tabs" label="Услуги и заявления" active={tab} items={serviceTabs} onSelect={changeTab}>
         {tab === "catalog" ? <>
           <label className="services-search"><Icon name="grid" /><span className="sr-only">Поиск услуг</span><input type="search" placeholder="Название услуги или ваш вопрос" aria-label="Поиск услуг" maxLength={1000} value={query} onChange={e => setQuery(e.target.value)} /></label>
           {loading && <p role="status">Загружаем каталог…</p>}
@@ -90,7 +112,7 @@ export function ServicesWorkspace({ path, student, requestId, serviceCode, initi
           })}</div>
           <section className="panel services-panel services-appeal" aria-labelledby="deanery-appeal-title">
             <div className="services-appeal-icon" aria-hidden="true"><Icon name="mail" size={24} /></div>
-            <div className="services-appeal-copy"><h2 id="deanery-appeal-title">Не нашли подходящую услугу?</h2><p>Напишите в деканат, если в каталоге нет подходящей услуги.</p>
+            <div className="services-appeal-copy"><h2 id="deanery-appeal-title">Обращение в деканат</h2><p>{deaneryAppealDescription}</p>
               <label className="services-confirm"><input type="checkbox" checked={catalogReviewed} onChange={e => setCatalogReviewed(e.target.checked)} />Я просмотрел каталог и не нашёл подходящей услуги</label>
               <button className="button button-primary" disabled={!catalogReviewed || busy} onClick={() => void create("deanery-appeal")}>{busy ? "Создаём…" : "Написать обращение в деканат"}</button>
             </div>
@@ -107,7 +129,10 @@ export function ServicesWorkspace({ path, student, requestId, serviceCode, initi
             <div className="services-pagination"><button disabled={page === 0 || loading} onClick={() => { setLoading(true); setPage(n => n - 1); }}>← Назад</button><span>Страница {page + 1} · Всего: {total}</span><button disabled={(page + 1) * 50 >= total || loading} onClick={() => { setLoading(true); setPage(n => n + 1); }}>Далее →</button></div>
           </section>
         </>}
+        </Tabs>
       </>}
     </>}
   </div>;
 }
+
+function Passthrough({ children }: { children: React.ReactNode }) { return children; }

@@ -15,7 +15,7 @@ export async function verifyStudentProfile({page,context,db,user,foreign,base,se
   await db.studentOfficialPhoto.upsert({where:{userId:foreign.id},update:foreignPhoto,create:{userId:foreign.id,...foreignPhoto}});
   await page.reload(); await settle(page);
   assert.equal(await page.locator('.student-profile input, .student-profile select, .student-profile textarea, .student-profile button, .student-profile form').evaluateAll(elements => elements.filter(e => !e.closest('.profile-settings')).length),0,'Official student profile must be read-only');
-  const expected=[['Фамилия','Тестов'],['Имя','Александр'],['Отчество','Сергеевич'],['Пол','Мужской'],['Гражданство',fixture.citizenship],['Контактный телефон',fixture.contactPhone],['Университетская электронная почта',user.email],['Институт',fixture.institute],['Образовательная программа',group.programme],['Уровень образования','Бакалавриат'],['Учебная группа',group.code],['Курс',String(group.course)],['Форма обучения',fixture.studyMode],['Основа обучения','Бюджет'],['Дата зачисления','1 сентября 2024 г.'],['Предполагаемый год окончания','2028'],['Статус обучения','Обучается'],['Номер личного дела',fixture.personalFileNumber],['Статус проживания','Проживает'],['Общежитие',fixture.dormitory],['Комната','315'],['Роль','Студент']];
+  const expected=[['Фамилия','Тестов'],['Имя','Александр'],['Отчество','Сергеевич'],['Пол','Мужской'],['Гражданство',fixture.citizenship],['Контактный телефон',fixture.contactPhone],['Университетская электронная почта',user.email],['Институт',fixture.institute],['Образовательная программа',group.programme],['Уровень образования','Бакалавриат'],['Учебная группа',group.code],['Курс',String(group.course)],['Форма обучения',fixture.studyMode],['Основа обучения','Бюджет'],['Дата зачисления','1 сентября 2024 г.'],['Предполагаемый год окончания','2028'],['Статус обучения','Обучается'],['Номер личного дела',fixture.personalFileNumber],['Статус проживания','Требуется сверка'],['Общежитие','Не указано'],['Комната','Не указано'],['Роль','Студент']];
   for(const [label,value] of expected)await expect(field(label)).toHaveText(value);
   await expect(page.locator('.student-profile-identity h2')).toHaveText('Тестов Александр Сергеевич');
   for(const title of ['Личные данные','Обучение','Документы','Общежитие','Учётная запись'])await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();
@@ -63,12 +63,12 @@ export async function verifyStudentProfile({page,context,db,user,foreign,base,se
     await expect(field('Статус обучения')).toHaveText(label);
     await expect(page.locator('.student-status')).toContainText(label);
   }
-  for(const [residenceStatus,label] of [[null,'Нет данных'],['NON_RESIDENT','Не проживает'],['RESIDENT','Проживает']]) {
-    await db.studentProfile.update({where:{userId:user.id},data:{residenceStatus}});
+  for(const [residenceStatus,label] of [[null,'Нет данных'],['NON_RESIDENT','Не проживает'],['RESIDENT','Требуется сверка']]) {
+    await db.studentProfile.update({where:{userId:user.id},data:{residenceStatus,dormitory:residenceStatus==='RESIDENT'?fixture.dormitory:null,dormitoryRoom:residenceStatus==='RESIDENT'?'315':null}});
     await page.reload(); await settle(page);
     await expect(field('Статус проживания')).toHaveText(label);
-    await expect(field('Общежитие')).toHaveText(residenceStatus==='RESIDENT'?fixture.dormitory:'Не указано');
-    await expect(field('Комната')).toHaveText(residenceStatus==='RESIDENT'?'315':'Не указано');
+    await expect(field('Общежитие')).toHaveText('Не указано');
+    await expect(field('Комната')).toHaveText('Не указано');
   }
   const missing=Object.fromEntries(Object.keys(fixture).map(key=>[key,null]));
   await db.studentProfile.update({where:{userId:user.id},data:{...missing,groupId:null}});

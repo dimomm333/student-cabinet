@@ -1,7 +1,7 @@
 import "server-only";
 import Link from "next/link";
 import { Suspense } from "react";
-import { getOwnStudentProfile, educationStatusLabels, residenceStatusLabels } from "@/lib/student-profile";
+import { getOwnStudentProfile, educationStatusLabels } from "@/lib/student-profile";
 import { roleLabels } from "@/lib/roles";
 import CabinetPageLoading from "./cabinet-page-loading";
 import { Icon, type IconName } from "./icon";
@@ -28,7 +28,10 @@ async function ProfileContent() {
   const displayName = p?.lastName && p?.firstName ? fullName : user.name;
   const initials = displayName.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("");
   const status = p?.educationStatus ? educationStatusLabels[p.educationStatus] : "Не указано";
-  const resident = p?.residenceStatus === "RESIDENT";
+  const lastPlacement = user.dormPlacements[0];
+  const bed = lastPlacement?.status === "ACTIVE" ? lastPlacement.bed : null;
+  const legacy = !lastPlacement && (p?.residenceStatus === "RESIDENT" || p?.dormitory);
+  const housingStatus = bed ? "Проживает" : legacy ? "Требуется сверка" : lastPlacement || p?.residenceStatus === "NON_RESIDENT" ? "Не проживает" : "Нет данных";
   return <div className="student-profile">
     <div className="dashboard-title"><div><span className="eyebrow">Кабинет студента</span><h1>Профиль</h1><p>Личные данные и сведения об обучении в университете.</p></div></div>
     <section className="panel student-profile-hero" aria-label="Студент">
@@ -58,9 +61,11 @@ async function ProfileContent() {
       <Details title="Документы" icon="folder" fields={[["Номер личного дела", p?.personalFileNumber]]} />
       <StudentMilitaryRecord />
       <Details title="Общежитие" icon="home" fields={[
-        ["Статус проживания", p?.residenceStatus ? residenceStatusLabels[p.residenceStatus] : "Нет данных"],
-        ["Общежитие", resident ? p?.dormitory : null], ["Комната", resident ? p?.dormitoryRoom : null],
-      ]}>{!p?.residenceStatus && <p className="student-section-note">Сведения о проживании не предоставлены университетом.</p>}</Details>
+        ["Статус проживания", housingStatus],
+        ["Общежитие", bed?.room.floor.building.dormitory.name], ["Корпус", bed?.room.floor.building.name],
+        ["Комната", bed?.room.number], ["Место", bed?.number],
+      ]}>{legacy && <p className="student-section-note">Прежняя запись: {[p?.dormitory, p?.dormitoryRoom].filter(Boolean).join(", ") || "проживание указано в профиле"}.</p>}
+        <Link className="text-link" href="/dashboard/dormitory">Открыть общежитие</Link></Details>
       <Details title="Учётная запись" icon="shield" fields={[
         ["Роль", roleLabels[user.role]], ["Дата регистрации", new Intl.DateTimeFormat("ru-RU", { dateStyle: "long", timeZone: "Europe/Moscow" }).format(user.createdAt)],
       ]} />

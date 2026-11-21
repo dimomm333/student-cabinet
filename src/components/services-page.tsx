@@ -9,6 +9,6 @@ async function Content({ role, path, searchParams }: Props) {
   const user = await requireRole(role);
   const query = await searchParams;
   const scalar = (key: string) => typeof query[key] === "string" && query[key].length <= 128 ? query[key] : "";
-  return <ServicesWorkspace key={scalar("requestId") || scalar("service") || scalar("tab")} ownerId={user.id} path={path} student={role === "STUDENT"} requestId={scalar("requestId")} serviceCode={scalar("service")} initialTab={scalar("tab")} />;
+  return <ServicesWorkspace key={scalar("requestId") || scalar("service") || scalar("tab")} ownerId={user.id} path={path} student={role === "STUDENT"} requestId={scalar("requestId")} serviceCode={scalar("service")} />;
 }
 export function ServicesPage(props: Props) { return <Suspense fallback={<CabinetPageLoading />}><Content {...props} /></Suspense>; }

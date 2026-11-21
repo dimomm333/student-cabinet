@@ -14,6 +14,14 @@ export async function getOwnStudentProfile() {
     where: { id: actor.id, role: "STUDENT" },
     select: {
       name: true, email: true, role: true, createdAt: true,
+      dormPlacements: {
+        where: { status: { in: ["ACTIVE", "ENDED"] } }, orderBy: [{ startedAt: "desc" }, { id: "desc" }], take: 1,
+        select: { status: true, bed: { select: {
+          number: true, room: { select: { number: true, floor: { select: { building: { select: {
+            name: true, dormitory: { select: { name: true } },
+          } } } } } },
+        } } },
+      },
       studentProfile: { select: {
         lastName: true, firstName: true, middleName: true, gender: true, citizenship: true, contactPhone: true,
         institute: true, program: true, groupName: true, course: true, studyMode: true,

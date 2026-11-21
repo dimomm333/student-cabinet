@@ -13,7 +13,7 @@
 | Личные данные | `lastName`, `firstName`, `middleName`, `gender`, `citizenship`, `contactPhone` |
 | Обучение | `educationLevel`, `fundingBasis`, `enrolledAt`, `expectedGraduationYear`, `educationStatus` |
 | Документы | `personalFileNumber` |
-| Общежитие | `residenceStatus`, `dormitory`, `dormitoryRoom` |
+| Общежитие | Подтверждённое размещение `DormPlacement`. Поля `residenceStatus`, `dormitory` и `dormitoryRoom` сохраняют старую запись для сверки. |
 
 Перечисление `EducationStatus`: `STUDYING`, `ACADEMIC_LEAVE`, `EXPELLED`, `GRADUATED`, `TRANSFERRED`. Восстановление не является постоянным статусом. Неизвестный статус — `null`, отображается «Не указано». `ResidenceStatus`: `RESIDENT` / `NON_RESIDENT`; `null` означает «Нет данных». При неизвестном статусе и непроживании название общежития и комната не выдаются за действительные сведения.
 

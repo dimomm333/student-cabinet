@@ -10,6 +10,7 @@ export const sections: { slug: string; title: string; icon: IconName; descriptio
   { slug: "notifications", title: "Уведомления", icon: "bell", description: "Уведомления об учёбе и событиях университета.", group: "Кампус" },
   { slug: "news", title: "Новости", icon: "news", description: "Новости и объявления университета.", group: "Кампус" },
   { slug: "clearance", title: "Обходной лист", icon: "clipboard", description: "Согласование обходного листа в подразделениях университета.", group: "Кампус" },
+  { slug: "dormitory", title: "Общежитие", icon: "home", description: "Проживание, ремонт комнаты и оплата.", group: "Кампус" },
   { slug: "useful", title: "Полезное", icon: "spark", description: "Ответы на частые вопросы, контакты служб и памятки.", group: "Кампус" },
   { slug: "sports", title: "Физкультура", icon: "sport", description: "Спортивные секции, тренировки и посещаемость.", group: "Кампус" },
   { slug: "portfolio", title: "Портфолио", icon: "briefcase", description: "Проекты, достижения и участие в мероприятиях.", group: "Кампус" },

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, renameSync, unlinkSync, openSync, closeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -19,6 +19,7 @@ import { localServiceStorage, prepareServiceFile } from '../src/lib/services-sto
 mkdirSync('.local', { recursive: true });
 const root = mkdtempSync(resolve('.local/services-test-'));
 const source = createClient({ url: getDatabaseUrl() }), before = await fingerprint(source);
+closeSync(openSync(resolve(root, 'test.db'), 'wx', 0o600));
 process.env.DATABASE_URL = 'file:' + resolve(root, 'test.db').replaceAll('\\', '/');
 const migration = spawnSync(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], { env: process.env, encoding: 'utf8', windowsHide: true });
 assert.equal(migration.status, 0, migration.stderr);
@@ -42,13 +43,13 @@ function sample(config) {
   return Object.fromEntries(config.fields.filter(field => field.required).map(field => [field.key, field.type === 'integer' ? 1 : field.type === 'money' ? 100.25 : field.type === 'choice' ? field.options[0] : field.type === 'date' ? '2026-11-20' : 'Демонстрационные сведения']));
 }
 try {
-  await seedServices(db); await seedServices(db); assert.equal(await db.serviceDefinition.count(), 16);
+  await seedServices(db); await seedServices(db); assert.equal(await db.serviceDefinition.count(), serviceCatalog.length);
   const department = await db.academicDepartment.create({ data: { faculty: 'Test', name: 'Services' } });
   const otherDepartment = await db.academicDepartment.create({ data: { faculty: 'Test', name: 'Other' } });
   const group = await db.studyGroup.create({ data: { code: 'TEST-1', slug: 'test-1', programme: 'Test', course: 1, departmentId: department.id } });
   const student = await user('STUDENT', group.id), other = await user('STUDENT', group.id), dean = await user('DEANERY_STAFF'), empty = await user('DEANERY_STAFF'), tech = await user('TECHNICAL_STAFF'), admin = await user('ADMIN'), teacher = await user('TEACHER');
   await db.deaneryDepartmentAssignment.create({ data: { userId: dean.id, departmentId: department.id } });
-  for (const config of serviceCatalog) {
+  for (const config of serviceCatalog.filter(service => service.code !== 'dorm-transfer')) {
     await db.serviceRoute.create({ data: { serviceCode: config.code, sourceDepartmentId: department.id, departmentId: department.id } });
     await db.serviceGrant.create({ data: { userId: dean.id, departmentId: department.id, serviceCode: config.code, readFiles: true, readMilitary: true } });
     const fields = sample(config);
@@ -68,7 +69,7 @@ try {
     await assert.rejects(() => getServiceRequest(db, other, state.id), /недоступно/);
     for (const denied of [tech, admin, teacher, empty]) await assert.rejects(() => getServiceRequest(db, denied, state.id), /недоступно/);
   }
-  pass('All 16 schemas, partial drafts, required fields/documents, ownership and five roles');
+  pass('Schemas for applicants without housing, partial drafts, required fields/documents, ownership and five roles');
   assert.equal(searchServices('матпомощь')[0].service.code, 'material-aid');
   assert.equal(searchServices('военкомат')[0].service.code, 'military-change');
   assert(searchServices('справкка').some(x => x.service.category === 'DOCUMENTS'));

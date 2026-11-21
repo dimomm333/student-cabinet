@@ -6,7 +6,9 @@ export const categories = {
 } as const;
 export type Category = keyof typeof categories;
 export type Field = { key: string; label: string; type: "text" | "date" | "integer" | "money" | "choice"; required?: boolean; options?: string[]; max?: number };
-export type DocumentSlot = { key: string; label: string; required?: boolean; when?: { field: string; value: string } };
+export type DocumentSlot = { key: string; label: string; photoOnly?: boolean; required?: boolean; when?: { field: string; value: string } };
+export const servicePhotoMimeTypes = ["image/jpeg", "image/png", "image/webp"];
+export const deaneryAppealDescription = "Не нашли подходящую услугу? Опишите свой вопрос или ситуацию в свободной форме — сотрудники деканата рассмотрят ваше обращение.";
 export type ServiceConfig = { code: string; version: number; title: string; category: Category | null; description: string; synonyms: string[]; fields: Field[]; documents: DocumentSlot[]; profile: ("name" | "group" | "studentNumber" | "program" | "military")[]; resultDocument: boolean; processing: string };
 const text = (key: string, label: string, required = true): Field => ({ key, label, type: "text", required, max: 2000 });
 const date = (key: string, label: string): Field => ({ key, label, type: "date", required: true });
@@ -14,6 +16,7 @@ const choice = (key: string, label: string, options: string[]): Field => ({ key,
 const reason = text("reason", "Основание или причина");
 const period = [date("startsOn", "Начало периода"), date("endsOn", "Конец периода")];
 const proof: DocumentSlot = { key: "proof", label: "Подтверждающий документ", required: true };
+const housingPhotos: DocumentSlot = { key: "housing-photos", label: "Приложенные фотографии", photoOnly: true };
 const receive = choice("delivery", "Способ получения", ["Лично", "Электронная копия"]);
 function service(code: string, title: string, category: Category | null, fields: Field[], documents: DocumentSlot[], synonyms: string[], extra: Partial<ServiceConfig> = {}): ServiceConfig {
   return { code, version: 1, title, category, description: "Условия оказания услуги и перечень приложений требуют утверждения университетом.", synonyms, fields, documents, profile: ["name", "group"], resultDocument: false, processing: category === "FINANCE" ? "Уполномоченный финансовый обработчик" : category === "PERSONAL" ? "Уполномоченный обработчик персональных документов" : "Деканат", ...extra };
@@ -26,6 +29,8 @@ export const serviceCatalog: readonly ServiceConfig[] = [
   service("social-scholarship", "Заявление на государственную социальную стипендию", "FINANCE", [reason, ...period], [proof], ["соц стипендия", "социальная помощь", "льгота"]),
   service("material-aid", "Единовременная материальная помощь", "FINANCE", [reason, text("circumstances", "Обстоятельства")], [proof], ["матпомощь", "деньги", "трудная ситуация"]),
   service("dorm-compensation", "Компенсация проживания в общежитии", "FINANCE", [...period, text("dormitory", "Общежитие"), { key: "amount", label: "Расходы, руб.", type: "money", max: 1000000 }], [proof], ["общага", "возмещение жилье", "оплата общежития"]),
+  service("dorm-move-in", "Заселение в общежитие", "ACADEMIC", [reason, text("preference", "Пожелания по размещению", false)], [housingPhotos], ["получить место", "жильё", "общежитие"], { description: "После положительного решения сотрудник подберёт место и сообщит о резерве." }),
+  service("dorm-transfer", "Переселение в общежитии", "ACADEMIC", [reason, text("preference", "Пожелания по размещению", false)], [housingPhotos], ["сменить комнату", "переехать", "общежитие"], { description: "После положительного решения сотрудник подберёт новое место. Текущее место сохраняется до подтверждения переселения." }),
   service("travel-compensation", "Компенсация проезда домой во время каникул", "FINANCE", [...period, text("route", "Маршрут домой"), { key: "amount", label: "Расходы, руб.", type: "money", max: 1000000 }], [proof], ["билеты", "дорога домой", "возмещение проезда", "каникулы"]),
   service("academic-leave", "Академический отпуск", "ACADEMIC", [reason, ...period], [proof], ["академ", "приостановить обучение"]),
   service("group-transfer", "Перевод в другую учебную группу", "ACADEMIC", [text("targetGroup", "Желаемая группа"), reason], [], ["смена группы", "перевестись"]),
@@ -34,7 +39,7 @@ export const serviceCatalog: readonly ServiceConfig[] = [
   service("personal-change", "Изменение персональных данных", "PERSONAL", [choice("dataType", "Изменяемые сведения", ["ФИО", "Гражданство", "Иные официальные сведения"]), text("currentValue", "Текущие сведения", false), text("proposedValue", "Предлагаемые изменения")], [proof], ["фамилия", "смена имени", "ошибка профиль", "паспорт"]),
   service("military-change", "Изменение сведений воинского учёта", "PERSONAL", [text("registrationStatus", "Предлагаемые сведения об учёте"), text("office", "Военкомат"), text("documentType", "Вид документа"), text("documentNumber", "Реквизиты подтверждения")], [proof], ["военкомат", "военный билет", "приписное"], { profile: ["name", "group", "military"] }),
   service("pass-reissue", "Перевыпуск студенческого пропуска", "PERSONAL", [reason, choice("photo", "Фотография", ["KEEP", "NEW"])], [{ key: "photo", label: "Новая фотография", required: true, when: { field: "photo", value: "NEW" } }], ["потерял пропуск", "карта", "фото", "пропуск сломан"]),
-  service("deanery-appeal", "Обращение в деканат", null, [text("subject", "Тема"), text("message", "Вопрос")], [{ key: "attachment", label: "Приложение", required: false }], ["другой вопрос", "обращение"]),
+  service("deanery-appeal", "Обращение в деканат", null, [text("subject", "Тема"), text("message", "Вопрос")], [{ key: "attachment", label: "Приложение", required: false }], ["другой вопрос", "обращение"], { description: deaneryAppealDescription }),
 ];
 export class ServiceError extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
 export function configFor(code: string, version?: number) {

@@ -2,7 +2,7 @@
 import { workTitle } from "./brs-work-labels";
 import { presentAcademicText } from "@/lib/presentation-copy";
 
-import Link from "next/link";
+import { SectionLinks } from "./section-navigation";
 import { usePathname, useRouter } from "next/navigation";
 import { StudentOverview, AttendanceLegend } from "./brs-student-progress";
 import { useBrsTableHighlight } from "./brs-table-highlight";
@@ -71,6 +71,7 @@ export function BrsWorkspaceView({ initial, section, initialEventId }: { initial
   function setMode(value: "full" | "compact") { try { localStorage.setItem("brs-progress-mode", value); } catch {} window.dispatchEvent(new Event("brs-mode")); }
   const [selectedStudent, setSelectedStudent] = useState("");
   const plan = model.selected, teacher = model.role === "TEACHER", deanery = model.role === "DEANERY_STAFF", studentRole = model.role === "STUDENT";
+  const planQuery = plan ? "?planId=" + encodeURIComponent(plan.id) : "";
   const events = plan?.modules.flatMap(brsModule => brsModule.events) ?? [];
   const currentStudent = plan?.students.find(student => student.id === selectedStudent) ?? plan?.students[0];
   const base = studentRole ? "/dashboard" : teacher ? "/teacher" : "/deanery";
@@ -147,7 +148,14 @@ export function BrsWorkspaceView({ initial, section, initialEventId }: { initial
   }
   return <div className="brs-workspace" ref={highlightRoot}>
     <div className="dashboard-title"><div><span className="eyebrow">Балльно-рейтинговая система</span><h1>{section === "session" ? "Сессия" : section === "plans" ? "Планы БРС" : section === "admissions" ? "Допуски и сессия" : teacher ? "Электронный журнал" : "Успеваемость"}</h1></div></div>
-    {!(studentRole && section === "grades") && <nav className="brs-tabs" aria-label="Разделы БРС"><Link prefetch={false} href={base + "/grades" + (plan ? "?planId=" + encodeURIComponent(plan.id) : "")}>Успеваемость</Link><Link prefetch={false} href={base + "/session" + (plan ? "?planId=" + encodeURIComponent(plan.id) : "")}>Сессия</Link>{deanery && <><Link href="/deanery/brs">Планы БРС</Link><Link prefetch={false} href={"/deanery/admissions" + (plan ? "?planId=" + encodeURIComponent(plan.id) : "")}>Допуски</Link></>}</nav>}
+    {!(studentRole && section === "grades") && <SectionLinks className="brs-tabs" label="Разделы БРС" active={section} items={[
+      { id: "grades", label: "Успеваемость", href: base + "/grades" + planQuery, prefetch: false },
+      { id: "session", label: "Сессия", href: base + "/session" + planQuery, prefetch: false },
+      ...(deanery ? [
+        { id: "plans", label: "Планы БРС", href: "/deanery/brs" },
+        { id: "admissions", label: "Допуски", href: "/deanery/admissions" + planQuery, prefetch: false as const },
+      ] : []),
+    ]} />}
     {message && <p className="brs-message" role="status">{message}</p>}{error && !modal && <p className="brs-error" role="alert">{error}</p>}
     <section className="panel brs-panel"><div className="brs-flex"><BrsPlanFilters model={model} periodOnly={studentRole && section === "grades"} busy={busy} select={async id => { setBusy(true); setError(""); try { await refresh(id); setSelectedStudent(""); router.replace(pathname + "?planId=" + encodeURIComponent(id), { scroll: false }); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }} /><button disabled={busy} onClick={async () => { setBusy(true); try { await refresh(); setMessage("Данные обновлены."); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>Обновить</button></div>{!model.plans.length && <p>Опубликованных планов или действующих назначений пока нет.</p>}</section>
     {deanery && model.catalog && <DeanerySetup catalog={model.catalog} busy={busy} mutate={mutate} open={open} />}

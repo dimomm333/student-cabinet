@@ -6,6 +6,7 @@ import { ClearanceError, clearanceDate, clearanceInt, clearanceReasons, clearanc
 import { emitNotification } from "./notifications-repository.ts";
 import { renderClearancePdf, type ClearanceSnapshot } from "./clearance-pdf.ts";
 import { serviceProcessorScope } from "./services-permissions.ts";
+import { chargeBalance } from "./dormitory-money.ts";
 
 const hash = (v: string | Buffer) => createHash("sha256").update(v).digest("hex");
 const id = (v: unknown) => clearanceText(v, "Идентификатор", 100);
@@ -34,9 +35,10 @@ export async function clearanceNotification(tx: ClearanceDB, p: Process, type: s
   }
   await emitNotification(tx, { sourceKey: `clearance:${p.id}:${p.version}:${type}`, source: "CLEARANCE", sourceId: p.id, clearanceProcessId: p.id, type, category: "SERVICES", title, body: "Откройте обходной лист, чтобы просмотреть изменения.", mandatory: true, recipients });
 }
-function applicability(rule: ClearanceRule, p: { residenceStatus: string | null; dormitory: string | null; fundingBasis: string | null }, reason: ClearanceReason) {
+function applicability(rule: ClearanceRule, p: { residenceStatus: string | null; dormitory: string | null; fundingBasis: string | null }, reason: ClearanceReason, housing: "ACTIVE" | "ENDED" | null) {
   if (rule === "ALWAYS" || rule === "FINAL") return { status: "PENDING" as const, needsClarification: false, applicabilityNote: null };
-  if (rule === "DORMITORY" && (p.residenceStatus === "RESIDENT" || p.dormitory)) return { status: "PENDING" as const, needsClarification: false, applicabilityNote: "В профиле указано проживание в общежитии." };
+  if (rule === "DORMITORY" && housing) return { status: "PENDING" as const, needsClarification: false, applicabilityNote: housing === "ACTIVE" ? "Проживание подтверждено." : "Проживание завершено. Проверьте оставшиеся обязательства." };
+  if (rule === "DORMITORY" && (p.residenceStatus === "RESIDENT" || p.dormitory)) return { status: "PENDING" as const, needsClarification: false, applicabilityNote: "В профиле указана прежняя запись о проживании." };
   if (rule === "PAID" && /договор|платн/i.test(p.fundingBasis ?? "")) return { status: "PENDING" as const, needsClarification: false, applicabilityNote: "В профиле указано договорное обучение." };
   if (rule === "GRADUATION" && reason !== "GRADUATION") return { status: "NOT_APPLICABLE" as const, needsClarification: false, applicabilityNote: "Проверка предусмотрена только для выпуска." };
   if (rule === "GRADUATION") return { status: "PENDING" as const, needsClarification: false, applicabilityNote: "Выпускная процедура." };
@@ -99,11 +101,13 @@ async function createProcess(tx: ClearanceDB, u: ClearanceUser, c: ClearanceComm
   const startsOn = clearanceDate(c.startsOn, false)!, plannedOn = clearanceDate(c.plannedOn);
   if (plannedOn && plannedOn < startsOn) throw new ClearanceError("Дата завершения раньше даты начала.");
   const serviceRequestId = c.serviceRequestId ? id(c.serviceRequestId) : null;
+  const dormPlacement = await tx.dormPlacement.findFirst({ where: { studentId: profile.userId, status: { in: ["ACTIVE", "ENDED"] } }, select: { status: true }, orderBy: [{ startedAt: "desc" }, { id: "desc" }] });
+  const housing = dormPlacement?.status === "ACTIVE" ? "ACTIVE" : dormPlacement ? "ENDED" : null;
   if (serviceRequestId && (template.reason !== "WITHDRAWAL" || !await tx.serviceRequest.count({ where: { id: serviceRequestId, ownerId: profile.userId, serviceCode: "withdrawal", status: { in: ["IN_REVIEW", "IN_PROGRESS", "COMPLETED"] }, AND: [await serviceProcessorScope(tx, u)], deletedAt: null } }))) throw new ClearanceError("Связанное заявление недоступно или ещё не принято деканатом.");
   const p = await tx.clearanceProcess.create({ data: { number: "ОЛ-" + randomUUID().toUpperCase(), studentId: profile.userId, academicDepartmentId: profile.group.departmentId, templateId: template.id, templateName: template.name, templateVersion: template.version,
     reason: template.reason, basisNote: clearanceText(c.basisNote, "Основание оформления"), startsOn, plannedOn, orderNumber: clearanceText(c.orderNumber, "Номер приказа", 100, true) || null, orderDate: clearanceDate(c.orderDate),
     studentName: profile.user.name, groupName: profile.group.code, activeKey, serviceRequestId,
-    steps: { create: template.rules.map(r => ({ departmentId: r.departmentId, name: r.department.name, description: r.department.description, contact: r.department.contact, sortOrder: r.department.sortOrder, rule: r.rule, isFinal: r.rule === "FINAL", ...applicability(r.rule, profile, template.reason) })) },
+    steps: { create: template.rules.map(r => ({ departmentId: r.departmentId, name: r.department.name, description: r.department.description, contact: r.department.contact, sortOrder: r.department.sortOrder, rule: r.rule, isFinal: r.rule === "FINAL", ...applicability(r.rule, profile, template.reason, housing) })) },
   }, select: { id: true } });
   await audit(tx, u, "CREATE", "Создан черновик обходного листа.", p.id); return p;
 }
@@ -291,10 +295,27 @@ export async function clearanceDetail(db: PrismaClient, actor: ClearanceActor, p
     const history = await tx.clearanceHistory.findMany({ where: historyWhere, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 30, skip: page * 30 });
     const historyTotal = await tx.clearanceHistory.count({ where: historyWhere });
     const document = !technical ? await tx.clearanceDocument.findUnique({ where: { processId }, select: { createdAt: true, invalidatedAt: true } }) : null;
+    const canReadHousing = p.status !== "DRAFT" && !clearanceTerminal(p.status) && steps.some(step => step.rule === "DORMITORY" &&
+      (u.role === "STUDENT" || grants.some(grant => grant.departmentId === step.departmentId)));
+    const housing = canReadHousing ? await getClearanceHousingFacts(tx, p.studentId) : null;
     return { id: p.id, number: p.number, studentName: p.studentName, groupName: p.groupName, reason: technical ? null : p.reason, basisNote: technical ? null : p.basisNote, orderNumber: technical ? null : p.orderNumber, orderDate: technical ? null : p.orderDate,
       serviceRequestId: u.role === "STUDENT" || u.role === "DEANERY_STAFF" ? p.serviceRequestId : null, templateName: technical ? null : p.templateName, startsOn: p.startsOn, plannedOn: p.plannedOn, openedAt: p.openedAt, completedAt: p.completedAt, status: p.status, version: p.version, role: u.role,
-      steps: steps.map(s => ({ ...s, canReview: ["TECHNICAL_STAFF", "DEANERY_STAFF"].includes(u.role) && grants.some(g => g.departmentId === s.departmentId) && !s.isFinal })), history, historyTotal, historyPage: page, hasDocument: Boolean(document && !document.invalidatedAt && p.status === "COMPLETED") };
+      steps: steps.map(s => ({ ...s, housing: s.rule === "DORMITORY" && (u.role === "STUDENT" || grants.some(g => g.departmentId === s.departmentId)) ? housing : null, canReview: ["TECHNICAL_STAFF", "DEANERY_STAFF"].includes(u.role) && grants.some(g => g.departmentId === s.departmentId) && !s.isFinal })), history, historyTotal, historyPage: page, hasDocument: Boolean(document && !document.invalidatedAt && p.status === "COMPLETED") };
   });
+}
+async function getClearanceHousingFacts(tx: ClearanceDB, studentId: string) {
+  const placement = await tx.dormPlacement.findFirst({
+    where: { studentId, status: { in: ["ACTIVE", "ENDED"] } }, orderBy: [{ startedAt: "desc" }, { id: "desc" }],
+    select: { status: true, departure: { select: { inspectedAt: true, completedAt: true } } },
+  });
+  if (!placement) return null;
+  const [loans, charges] = await Promise.all([
+    tx.dormLoan.findMany({ where: { placement: { studentId }, returnedAt: null }, select: { isKey: true } }),
+    tx.dormCharge.findMany({ where: { studentId }, select: { amountRub: true, entries: { select: { kind: true, amountRub: true } } } }),
+  ]);
+  return { active: placement.status === "ACTIVE", inspected: Boolean(placement.departure?.inspectedAt),
+    departed: Boolean(placement.departure?.completedAt), keysOutstanding: loans.some(loan => loan.isKey),
+    propertyOutstanding: loans.some(loan => !loan.isKey), hasDebt: charges.some(charge => chargeBalance(charge) > BigInt(0)) };
 }
 export async function clearanceContext(db: PrismaClient, actor: ClearanceActor, q = "", page = 0) {
   pageNumber(page);
