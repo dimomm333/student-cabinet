@@ -37,6 +37,7 @@ export function relatedGroups(groups: { id: string; parentId: string | null }[],
 }
 async function guardGroups(tx: Tx, actor: DeaneryActor, groupIds: string[]) {
   const context = await getDeaneryContext(tx, actor);
+  if (await tx.peGroup.count({ where: { plan: { groupId: { in: groupIds } } } })) fail("Занятия спортивных групп изменяются в разделе «Физкультура».");
   const groups = await tx.studyGroup.findMany({ select: { id: true, departmentId: true, parentId: true }, take: 5001 });
   if (groups.length > 5000) fail("Справочник групп требует расширения серверной выборки.");
   const allowed = new Set(context.departments.map(department => department.id));

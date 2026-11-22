@@ -5,6 +5,7 @@ import { isoDate, mondayOf } from "./schedule-calendar.ts";
 import type { loadScheduleRecords, EffectivePair } from "./schedule-effective.ts";
 import { effectiveSchedule } from "./schedule-effective.ts";
 import { groupScope } from "./schedule-repository.ts";
+import { inMembership } from "./physical-education-schedule.ts";
 
 type Tx = Prisma.TransactionClient;
 export type BrsNotificationState = { result?: unknown; final?: unknown; admission: string };
@@ -50,11 +51,25 @@ export async function emitScheduleChanges(tx: Tx, key: string, before: Records, 
   }
   if (!changed.length) return;
   const students = await tx.studentProfile.findMany({ where: { user: { role: "STUDENT" }, groupId: { not: null } }, select: { userId: true, groupId: true } });
+  const affectedGroupIds = [...new Set(changed.flatMap(pair => pair.record.lesson.groups.map(link => link.groupId)))];
+  const [memberships, bookings] = await Promise.all([
+    tx.peMembership.findMany({ where: { group: { plan: { groupId: { in: affectedGroupIds } } },
+      enrollment: { student: { user: { role: "STUDENT" } } } }, include: { group: { include: { plan: true } }, enrollment: true } }),
+    tx.peBooking.findMany({ where: { cancelledAt: null, makeup: { exceptionId: { in: changed.map(pair => pair.record.id) } }, student: { user: { role: "STUDENT" } } },
+      include: { makeup: { select: { exceptionId: true } } } }),
+  ]);
   const recipients: { id: string; role: "STUDENT" | "TEACHER"; href: string; groupId?: string }[] = [];
   for (const student of students) {
     const group = groups.find(g => g.id === student.groupId); if (!group) continue;
     const scope = new Set(groupScope(hierarchy, group.slug));
-    const relevant = changed.filter(p => p.record.lesson.groups.some(g => scope.has(g.group.slug)));
+    const relevant = changed.filter(pair => {
+      const record = pair.record;
+      if ("physicalMakeup" in record && record.physicalMakeup) return bookings.some(row => row.studentId === student.userId && row.makeup.exceptionId === record.id);
+      return record.lesson.groups.some(g => scope.has(g.group.slug))
+        || memberships.some(row => row.enrollment.studentId === student.userId && row.group.plan.termId === record.termId
+          && row.group.plan.disciplineId === record.lesson.disciplineId
+          && record.lesson.groups.some(link => link.groupId === row.group.plan.groupId) && inMembership(pair, row));
+    });
     if (relevant.length) {
       const date = relevant.map(p => p.date).sort((a,b) => a.getTime() - b.getTime())[0];
       recipients.push({ id: student.userId, role: "STUDENT", groupId: group.id, href: `/dashboard/schedule?week=${isoDate(mondayOf(date))}&day=${(date.getUTCDay() + 6) % 7 + 1}` });

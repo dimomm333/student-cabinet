@@ -14,8 +14,10 @@ import { roleLabels, roleHomes as homes } from "../src/lib/roles.ts";
 import { provisionTestDatabase } from "./test-fixtures.mjs";
 import { verifyStudentProfile } from "./student-profile-checks.mjs";
 import { verifyProfileSettings } from "./profile-settings-checks.mjs";
+import { verifyUseful } from "./useful-checks.mjs";
 
 const observe = process.argv.includes("--observe"), production = process.argv.includes("--production");
+const usefulOnly = process.argv.includes("--useful");
 mkdirSync(".local", { recursive: true });
 const root = mkdtempSync(resolve(".local/cabinet-navigation-")), project = resolve(root, "project");
 const source = createClient({ url: getDatabaseUrl() });
@@ -274,7 +276,7 @@ try {
     await new Promise(done => setTimeout(done, 250));
   }
   assert(ready, "Isolated navigation server unavailable");
-  if (!production) {
+  if (!production && !usefulOnly) {
     const started=performance.now();
     const response=await fetch(base+'/dashboard/profile',{redirect:'manual',signal:AbortSignal.timeout(120000)});
     // Streaming HTML can carry the redirect, so verify the full response too.
@@ -283,14 +285,19 @@ try {
     pass('Cold profile compilation',{milliseconds:Math.round(performance.now()-started),status:response.status});
   }
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome", headless: true });
-  const anonymous = await browser.newContext();
-  const anonymousPage = await anonymous.newPage();
-  assert.equal((await anonymous.request.get(base+'/api/student/profile/photo')).status(),401);
-  anonymousPage.setDefaultNavigationTimeout(120000);
-  for (const home of Object.values(homes)) { await anonymousPage.goto(base + home + '/profile'); await anonymousPage.waitForURL(base + '/login'); }
-  await anonymous.close();
-  pass('Anonymous profiles', { denied: Object.keys(homes).length });
-  for (const actor of demoAccounts.filter(a => a.email !== "maria.volkova@example.test")) {
+  if (usefulOnly) {
+    await verifyUseful({ browser, db, base, password, root, settle, pass, diagnostics, browserErrors, warningPattern });
+  } else {
+    const anonymous = await browser.newContext();
+    const anonymousPage = await anonymous.newPage();
+    assert.equal((await anonymous.request.get(base+'/api/student/profile/photo')).status(),401);
+    anonymousPage.setDefaultNavigationTimeout(120000);
+    for (const home of Object.values(homes)) { await anonymousPage.goto(base + home + '/profile'); await anonymousPage.waitForURL(base + '/login'); }
+    await anonymous.close();
+    pass('Anonymous profiles', { denied: Object.keys(homes).length });
+  }
+  const actors = usefulOnly ? [] : demoAccounts.filter(a => a.email !== "maria.volkova@example.test");
+  for (const actor of actors) {
     if (process.argv.includes("--student-only") && actor.role !== "STUDENT") continue;
     const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, reducedMotion: "reduce" });
     const signed = await context.request.post(base + "/api/auth/sign-in/email", { headers: { Origin: base }, data: { email: actor.email, password } });
@@ -363,6 +370,9 @@ try {
     await context.close();
   }
   assert.equal(await fingerprint(), before, "Source database changed");
+  if (usefulOnly) {
+    assert(!/Could not validate `instant`|attempting to validate instant UI/.test(logs), "Instant UI validation errors in the catalog server log");
+  }
   if (!observe) {
     assert.deepEqual(diagnostics, [], "Next.js warnings in browser");
     assert.deepEqual(browserErrors, [], "Browser runtime errors");

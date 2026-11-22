@@ -8,6 +8,7 @@ import { parse } from "dotenv";
 import { practicalDemoNews, seedSchedule } from "./schedule-seed.ts";
 import { seedDemoScheduleLinks } from "./schedule-demo-links.ts";
 import { seedStudentPhotoDemo } from "./student-photo-demo.ts";
+import { seedUsefulCatalog } from "./useful-seed.ts";
 
 const prisma = createPrismaClient();
 const deaneryOnly = process.argv.includes("--deanery-only");
@@ -89,6 +90,8 @@ async function main() {
     }
     if (!deaneryOnly) await seedDemoScheduleLinks(tx);
   });
+
+  if (!deaneryOnly && !scheduleLinksOnly) await seedUsefulCatalog(prisma);
 
   const [userCount, newsCount] = await Promise.all([
     prisma.user.count(),

@@ -3,9 +3,10 @@ import { add, compare, exactDto, fraction, integerRating, ratingValue, roundedHu
 export const controlLabels = { CREDIT: "З", DIFFERENTIATED: "ДифЗ", EXAM: "Э", DISTRIBUTED: "РЭкз" } as const;
 export const controlTitles = { CREDIT: "Зачёт", DIFFERENTIATED: "Дифференцированный зачёт", EXAM: "Экзамен", DISTRIBUTED: "Сессионный экзамен" } as const;
 export type Control = keyof typeof controlLabels;
-export const eventLabels = { HOMEWORK: "ДЗ", LAB: "ЛР", INTERIM: "РК", FINAL: "Итоговый РК", SEMINAR: "Семинар" } as const;
+export const eventLabels = { HOMEWORK: "ДЗ", LAB: "ЛР", INTERIM: "РК", FINAL: "Итоговый РК", SEMINAR: "Семинар", STANDARD: "Норматив" } as const;
 export type EventKind = keyof typeof eventLabels;
 export function workTitle(event: { kind: EventKind; title: string; number?: number; controlNumber?: number | null; moduleNumber?: number }, includeModule = true) {
+  if (event.kind === "STANDARD") return event.title;
   if (["INTERIM", "FINAL"].includes(event.kind)) return `РК${event.controlNumber ?? event.number ?? ""}${event.kind === "FINAL" && includeModule && event.moduleNumber ? `/М${event.moduleNumber}` : ""}`;
   const type = eventLabels[event.kind];
   const title = event.title.trim().replace(/^(ДЗ|РК|ЛР)\s+(?=ДЗ|РК|ЛР)/i, "").replace(/^(ДЗ|РК|ЛР)\s+(\d)/i, "$1$2");
@@ -66,6 +67,7 @@ export type ResultInput = { score: number | null; primaryScore?: number | null; 
 export type CalcEvent = { id: string; title: string; kind: EventKind; number?: number; controlNumber?: number | null; moduleNumber?: number; plannedOn?: Date | string | null; deadline?: Date | string | null; maxScore: number; required: boolean; labMinScore: number | null; labRequiresDefense: boolean; result?: ResultInput };
 export type CalcModule = { id: string; number: number; state: string; seminarMax: number; workMax: number; controlMax: number; events: CalcEvent[] };
 export function workStatus(event: Pick<CalcEvent, "kind">, result?: ResultInput) {
+  if (event.kind === "STANDARD") return result && !result.deleted && result.score !== null ? "Оценён" : "Ожидает результата";
   if (!result || result.deleted) return event.kind === "LAB" ? "Не начата" : "Не сдано";
   if (event.kind === "LAB") return labLabel(result.labStatus);
   if (result.submissionTiming) return timingLabels[result.submissionTiming as keyof typeof timingLabels] ?? "Срок сдачи не указан";
@@ -139,7 +141,7 @@ export function calculateBrs(control: Control, modules: CalcModule[], attempts: 
   const rating = integerRating(total);
   const admissionStatus = academic.state === "FAILED" ? "Не допущен" : academic.state !== "MET" ? "Проверка не завершена" : admission?.approved ? "Допущен" : "Ожидает подтверждения деканата";
   const moduleSum = (brsModule: CalcModule) => control === "DISTRIBUTED" && brsModule.events.some(event => event.id === finalEvent?.id) ? add(subtract(sum(brsModule.events), originalExact), replacement) : sum(brsModule.events);
-  return { semesterScore: roundedHundredths(semesterScore), semesterMax: control === "EXAM" ? 7000 : 10000, total: roundedHundredths(total), exactTotal: exactDto(total), exactSemester: exactDto(semesterScore), rating, provisionalGrade: gradeFor(control, rating), finalCalculatedRating: ready ? rating : null, ready,
+  return { physical: null as { visits: number; attendance: number; standards: number; control: number } | null, semesterScore: roundedHundredths(semesterScore), semesterMax: control === "EXAM" ? 7000 : 10000, total: roundedHundredths(total), exactTotal: exactDto(total), exactSemester: exactDto(semesterScore), rating, provisionalGrade: gradeFor(control, rating), finalCalculatedRating: ready ? rating : null, ready,
     academic, admissionStatus, bestAttemptId: bestAttempt?.id ?? null, examScore: control === "EXAM" ? bestAttempt?.score ?? null : roundedHundredths(replacement),
     examMax: control === "EXAM" ? 3000 : control === "DISTRIBUTED" ? finalEvent?.maxScore ?? 0 : 0,
     previousScore: roundedHundredths(sum(modules.filter(module => module.number < modules.length).flatMap(module => module.events))), finalEventId: finalEvent?.id,

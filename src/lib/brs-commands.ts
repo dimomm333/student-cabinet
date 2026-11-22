@@ -1,4 +1,5 @@
 import "server-only";
+import { isPhysicalPlan } from "./physical-education-brs.ts";
 import { brsResultSignature, emitBrsChanges, type BrsNotificationState } from "./notifications-sources.ts";
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "../generated/prisma/client.ts";
@@ -119,6 +120,23 @@ export async function publish(db: BrsDB, plan: FullPlan) {
   await db.brsPlan.update({ where: { id: plan.id }, data: { publishedAt: new Date() } });
 }
 
+export async function finalizeBrs(db: BrsDB, actor: BrsActor, plan: FullPlan, studentId: string, expectedVersion: number | undefined) {
+  role(actor, "TEACHER");
+  await studentInPlan(db, actor, plan, studentId);
+  const where = { planId_studentId: { planId: plan.id, studentId } };
+  const official = await db.brsFinal.findUnique({ where });
+  version(expectedVersion, official?.version ?? 0);
+  const current = await calculateStudent(db, plan, studentId);
+  if (!current.calculation.ready) fail(isPhysicalPlan(plan)
+    ? "Для зачёта необходимо не менее 25 подтверждённых посещений и 60 баллов."
+    : "Для фиксации завершите обязательные работы, выставление баллов, модули и предусмотренный экзамен.");
+  const values = { authorId: actor.id, score: current.calculation.total, rating: current.calculation.rating, grade: current.calculation.provisionalGrade,
+    basisJson: JSON.stringify({ calculation: current.calculation, resultVersions: current.results.map(r => [r.id, r.version]),
+      attemptVersions: current.attempts.map(a => [a.id, a.version]), attendanceVersions: current.attendance.map(a => [a.id, a.version]) }),
+    basedRevision: plan.revision + 1, approvedAt: new Date(), needsReview: false };
+  return db.brsFinal.upsert({ where, update: { ...values, version: { increment: 1 } }, create: { ...values, planId: plan.id, studentId } });
+}
+
 export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, command: BrsCommand) {
   if (!command || typeof command.operation !== "string" || !/^[a-zA-Z0-9-]{8,80}$/.test(command.requestId ?? "")) fail("Некорректная команда или ключ запроса.");
   const hash = createHash("sha256").update(JSON.stringify(command)).digest("hex");
@@ -130,8 +148,10 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
       await freshActor(tx, actor, true);
       if (actor.role === "STUDENT") fail("Студенту доступен только просмотр.", 403);
       let plan = command.planId ? await authorizePlan(tx, actor, command.planId) : null;
+      if (plan && isPhysicalPlan(plan) && command.operation !== "FINALIZE") fail("Изменения учебных результатов выполняются в разделе «Физкультура».");
       if (command.operation === "CREATE_PLAN" || command.operation === "ASSIGN") {
         role(actor, "DEANERY_STAFF"); await requireDeaneryGroup(tx, actor, { id: command.groupId ?? "" });
+        if (await tx.peGroup.count({ where: { plan: { groupId: command.groupId ?? "" } } })) fail("Спортивные назначения меняются в разделе «Физкультура».");
       }
       if (command.operation === "REVOKE_ASSIGN") {
         role(actor, "DEANERY_STAFF");
@@ -347,14 +367,8 @@ export async function executeBrsCommand(db: PrismaClient, actor: BrsActor, comma
                 after = existingAttempt ? await tx.brsExamAttempt.update({ where: { id: existingAttempt.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsExamAttempt.create({ data: { ...values, planId: plan.id, studentId, authorId: actor.id, admissionVersion: plan.control === "EXAM" ? current.admission!.version : null, number: (await tx.brsExamAttempt.aggregate({ where: { planId: plan.id, studentId }, _max: { number: true } }))._max.number! + 1 || 1 } });
               }
             } else if (command.operation === "FINALIZE") {
-              role(actor, "TEACHER");
-              version(command.version, official?.version ?? 0);
-              const current = await calculateStudent(tx, plan, studentId);
-              if (!current.calculation.ready) fail("Для фиксации завершите обязательные работы, выставление баллов, модули и предусмотренный экзамен.");
-              const values = { authorId: actor.id, score: current.calculation.total, rating: current.calculation.rating, grade: current.calculation.provisionalGrade,
-                basisJson: JSON.stringify({ calculation: current.calculation, resultVersions: current.results.map(r => [r.id, r.version]), attemptVersions: current.attempts.map(a => [a.id, a.version]), attendanceVersions: current.attendance.map(a => [a.id, a.version]) }), basedRevision: plan.revision + 1, approvedAt: new Date(), needsReview: false };
               before = official;
-              after = official ? await tx.brsFinal.update({ where: { id: official.id }, data: { ...values, version: { increment: 1 } } }) : await tx.brsFinal.create({ data: { ...values, planId: plan.id, studentId } });
+              after = await finalizeBrs(tx, actor, plan, studentId, command.version);
             } else fail("Неизвестная операция.");
             if (["RESULT", "DELETE_RESULT", "RESTORE_RESULT", "ATTEMPT", "DELETE_ATTEMPT", "RESTORE_ATTEMPT"].includes(command.operation) && official) await tx.brsFinal.update({ where: { id: official.id }, data: { needsReview: true, version: { increment: 1 } } });
             if (["RESULT", "DELETE_RESULT", "RESTORE_RESULT"].includes(command.operation) && plan.control === "EXAM") {

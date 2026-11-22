@@ -1,16 +1,22 @@
 import "server-only";
 import type { PrismaClient } from "../generated/prisma/client.ts";
 import { effectiveSchedule, loadScheduleRecords, isPublicPair, type EffectivePair } from "./schedule-effective.ts";
+import { physicalAudience } from "./physical-education-schedule.ts";
 import { DAY_MS, dayNames, isoDate, minuteLabel, filterScheduleChoices, weekParity, currentAcademicDate, scheduleHref, mondayOf, type ScheduleQuery } from "./schedule-calendar.ts";
 
 export type PublicChoice = { slug: string; name: string };
 export type GroupChoice = PublicChoice & { programme: string; faculty: string | null; department: string | null; parentSlug: string | null };
 export type PublicLesson = { key: string; date: string; start: string; end: string; discipline: string; kind: string; kindCode: "LECTURE" | "PRACTICE" | "SEMINAR" | "LAB"; weekPattern: string; weekPatternCode: "EVERY" | "NUMERATOR" | "DENOMINATOR"; termCode: string; teachers: PublicChoice[]; groups: PublicChoice[]; room: string; building: string; timeZone: string; change?: { type: string; cancelled: boolean; sourceDate: string; targetDate?: string; original?: { discipline: string; start: string; end: string; room: string; teachers: string[] } } };
 
-type Audience = { groups?: string[]; teacherId?: string; teacherSlug?: string };
+type Audience = { groups?: string[]; teacherId?: string; teacherSlug?: string; physical?: Awaited<ReturnType<typeof physicalAudience>> };
 function matches(pair: Pick<EffectivePair, "record">, audience: Audience) {
-  return audience.groups ? pair.record.lesson.groups.some(item => audience.groups!.includes(item.group.slug))
+  return audience.groups ? audience.physical?.matchesRecord(pair.record) || pair.record.lesson.groups.some(item => audience.groups!.includes(item.group.slug))
     : pair.record.lesson.teachers.some(item => audience.teacherId ? item.teacherId === audience.teacherId : item.teacher.scheduleSlug === audience.teacherSlug);
+}
+function matchesOccurrence(pair: EffectivePair, audience: Audience) {
+  return audience.physical
+    ? audience.physical.matchesPair(pair) || pair.record.lesson.groups.some(link => audience.groups?.includes(link.group.slug))
+    : matches(pair, audience);
 }
 
 const kindNames = { LECTURE: "Лекция", PRACTICE: "Практика", SEMINAR: "Семинар", LAB: "Лабораторная" };
@@ -61,8 +67,8 @@ async function personalAudience(prisma: PrismaClient, actor: { id: string; role:
       selected = { slug: profile.group.slug, name: profile.group.code };
       const groups = await prisma.studyGroup.findMany({ select: { slug: true, parent: { select: { slug: true } } } });
       visibleGroups = groupScope(groups.map(g => ({ slug: g.slug, parentSlug: g.parent?.slug ?? null })), selected.slug);
-      selector = { groups: visibleGroups };
     }
+    selector = { groups: visibleGroups ?? [], physical: await physicalAudience(prisma, actor.id) };
   } else {
     const profile = await prisma.teacherProfile.findUnique({ where: { userId: actor.id }, select: { publicName: true } });
     if (profile) { selected = { slug: "", name: profile.publicName ?? "Моё расписание" }; selector = { teacherId: actor.id }; }
@@ -88,7 +94,7 @@ export async function getStudentScheduleOverviewData(prisma: PrismaClient, stude
   const todayDate = currentAcademicDate(now, timeZone), today = isoDate(todayDate);
   const time = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
   const end = new Date(Math.max(todayDate.getTime(), ...terms.map(term => term.endsOn.getTime())));
-  const pairs = selector ? effectiveSchedule(records, todayDate, end, "personal").filter(pair => matches(pair, selector)).map(pair => projectPair(pair, visibleGroups)) : [];
+  const pairs = selector ? effectiveSchedule(records, todayDate, end, "personal").filter(pair => matchesOccurrence(pair, selector)).map(pair => projectPair(pair, visibleGroups)) : [];
   const todayLessons = pairs.filter(lesson => lesson.date === today);
   const next = pairs.find(lesson => !lesson.change?.cancelled && (lesson.date > today || lesson.end > time)) ?? null;
   const date = next?.date ?? today;
@@ -111,7 +117,7 @@ export function projectPair(pair: EffectivePair, visibleGroups?: string[], publi
   const pattern = "weekPattern" in entry ? entry.weekPattern : "EVERY";
   const original = pair.original && (!publicOnly || isPublicPair(pair.original)) ? pair.original : undefined;
   return { key: `${pair.date.toISOString()}-${entry.id}-${pair.status}`, date: isoDate(pair.date), start: minuteLabel(entry.startMinute), end: minuteLabel(entry.endMinute),
-    discipline: entry.lesson.discipline.title, kind: kindNames[entry.lesson.kind], kindCode: entry.lesson.kind, weekPattern: patternNames[pattern], weekPatternCode: pattern, termCode: entry.term.code,
+    discipline: "physicalMakeup" in entry && entry.physicalMakeup ? "Отработка по физкультуре" : entry.lesson.discipline.title, kind: kindNames[entry.lesson.kind], kindCode: entry.lesson.kind, weekPattern: patternNames[pattern], weekPatternCode: pattern, termCode: entry.term.code,
     teachers: entry.lesson.teachers.filter(item => item.teacher.isSchedulePublic && item.teacher.publicName && item.teacher.scheduleSlug).map(item => ({ slug: item.teacher.scheduleSlug!, name: item.teacher.publicName! })),
     groups: entry.lesson.groups.filter(item => !visibleGroups || item.group.isPublic || visibleGroups.includes(item.group.slug)).map(item => ({ slug: item.group.slug, name: item.group.code })),
     room: entry.room.number, building: entry.room.building.name, timeZone: entry.term.timeZone,
@@ -128,7 +134,7 @@ async function readSchedule(prisma: PrismaClient, query: ScheduleQuery, selected
   const visible = (record: typeof records.entries[number] | typeof records.exceptions[number]) => publicOnly ? isPublicPair(record) : record.isPublished && record.term.isPublished;
   const relevantTerms = new Set([...records.entries, ...records.exceptions].filter(record => visible(record) && (!selector || matches({ record }, selector))).map(record => record.termId));
   const terms = await prisma.academicTerm.findMany({ where: { isPublished: true, ...(selector ? { id: { in: [...relevantTerms] } } : {}) }, orderBy: [{ startsOn: "asc" }, { code: "asc" }], select: { code: true, name: true, startsOn: true, endsOn: true, firstNumeratorMonday: true } });
-  const pairs = selector && !query.invalid ? effectiveSchedule(records, query.week, end, publicOnly ? "public" : "personal").filter(pair => matches(pair, selector)) : [];
+  const pairs = selector && !query.invalid ? effectiveSchedule(records, query.week, end, publicOnly ? "public" : "personal").filter(pair => matchesOccurrence(pair, selector)) : [];
   for (const pair of pairs.slice(0, 300)) days[(pair.date.getUTCDay() + 6) % 7].lessons.push(projectPair(pair, visibleGroups, publicOnly));
   const activeTerms = terms.filter(term => term.startsOn <= end && term.endsOn >= query.week);
   const parities = [...new Set(activeTerms.map(term => patternNames[weekParity(query.week, term.firstNumeratorMonday)]))];

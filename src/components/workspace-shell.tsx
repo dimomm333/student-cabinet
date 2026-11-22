@@ -20,12 +20,13 @@ export function WorkspaceShell({ role, name, children, showPasses }: { role: Wor
   const workspace = workspaces[role];
   const home = roleHomes[role];
   const sections = showPasses ? [passSection, ...workspace.sections] : workspace.sections;
-  const current = sections.find((item) => pathname === `${home}/${item.slug}`);
+  const current = sections.find((item) => item.slug === pathname.split("/")[2]);
   const close = () => menu.current?.close();
   const navigation = <nav className="sidebar-nav" aria-label={workspace.title}>
     {[{ slug: "", title: "Главная", icon: "home" as const }, ...sections].map((item) => {
       const href = home + (item.slug ? `/${item.slug}` : "");
-      return <Link key={href} href={href} onClick={close} className={"nav-item" + (pathname === href ? " active" : "")} aria-current={pathname === href ? "page" : undefined}>
+      const active = pathname === href || pathname.startsWith(href + "/");
+      return <Link key={href} href={href} onClick={close} className={"nav-item" + (active ? " active" : "")} aria-current={pathname === href ? "page" : active ? "location" : undefined}>
         <Icon name={item.icon} /><span>{item.title}</span>{item.slug === "notifications" && <NotificationBadge />}
       </Link>;
     })}

@@ -4,10 +4,8 @@ import { headers } from "next/headers";
 import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import type { Role } from "@/generated/prisma/enums";
-import { auth } from "./auth";
-import { prisma } from "./prisma";
+import { readAuthenticatedUser } from "./auth-user";
 import { isRole, roleHomes } from "./roles";
-import { isSessionWithinLifetime } from "./session-policy";
 
 // React cache deduplicates within one render only; no cross-request session cache.
 export const getCurrentUser = cache(async () => {
@@ -15,14 +13,8 @@ export const getCurrentUser = cache(async () => {
   // request-time work. Stop prerendering before even accessing auth.api.
   // headers() alone is insufficient during navigation/prefetch validation.
   await connection();
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session || !isSessionWithinLifetime(session.session)) return null;
-
   // Always read the current DB role. A changed role takes effect on the next request.
-  return prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { id: true, name: true, email: true, role: true },
-  });
+  return readAuthenticatedUser(await headers());
 });
 
 // Each page and each future data mutation must authorize itself, beyond the layout.

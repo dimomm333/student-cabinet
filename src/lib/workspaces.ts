@@ -5,6 +5,7 @@ export type WorkspaceRole = Exclude<Role, "STUDENT">;
 export type WorkspaceSection = { slug: string; title: string; icon: IconName; description: string };
 export const passSection: WorkspaceSection = { slug: "passes", title: "Электронные пропуска", icon: "qr", description: "Операции со студенческими пропусками." };
 const profileSection: WorkspaceSection = { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные и сведения об учётной записи." };
+const sportsSection: WorkspaceSection = { slug: "sports", title: "Физкультура", icon: "sport", description: "Учебные спортивные группы, посещаемость, нормативы и зачёт." };
 const notificationsSection: WorkspaceSection = { slug: "notifications", title: "Уведомления", icon: "bell", description: "Уведомления об учёбе и работе университета." };
 const clearanceSection: WorkspaceSection = { slug: "clearance", title: "Обходные листы", icon: "check", description: "Проверки подразделений, замечания и итоговые согласования." };
 const dormitorySection: WorkspaceSection = { slug: "dormitory", title: "Общежития", icon: "home", description: "Работа в пределах назначений общежитий." };
@@ -17,6 +18,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       { slug: "students", title: "Студенты", icon: "user", description: "Просмотр студентов назначенных подразделений." },
       { slug: "groups", title: "Учебные группы", icon: "book", description: "Группы назначенных подразделений." },
       { slug: "schedule", title: "Расписание", icon: "calendar", description: "Регулярные занятия, разовые замены и отмены для своих групп." },
+      sportsSection,
       { slug: "grades", title: "Успеваемость", icon: "chart", description: "Модули, работы, баллы и посещаемость своих групп." },
       { slug: "brs", title: "Планы БРС", icon: "book", description: "Учебные назначения, настройка и публикация планов." },
       { slug: "admissions", title: "Допуски", icon: "check", description: "Подтверждение и отзыв допуска к обычным экзаменам." },
@@ -35,6 +37,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       notificationsSection,
       profileSection,
       { slug: "schedule", title: "Расписание", icon: "calendar", description: "Ваши занятия по всем группам, время, аудитории и корпуса." },
+      sportsSection,
       { slug: "disciplines", title: "Дисциплины и группы", icon: "book", description: "Закреплённые дисциплины и учебные группы." },
       { slug: "students", title: "Студенты", icon: "user", description: "Студенты закреплённых учебных групп." },
       { slug: "grades", title: "Журнал оценок", icon: "chart", description: "Модульный журнал баллов и посещаемости." },
@@ -70,6 +73,8 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       dormitorySection,
       { slug: "requests", title: "Заявки студентов", icon: "clipboard", description: "Заявления и документы, доступные по явным полномочиям." },
       { slug: "academic", title: "Учебные данные", icon: "book", description: "Структура учебных данных." },
+      sportsSection,
+      { slug: "useful", title: "Полезное", icon: "spark", description: "Управление студенческими справочниками, инструкциями и ссылками." },
       { slug: "settings", title: "Настройки", icon: "shield", description: "Настройки университетской системы." },
       clearanceSection,
     ],

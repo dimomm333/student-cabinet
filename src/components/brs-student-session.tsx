@@ -13,6 +13,7 @@ function courseStatus({ official, control, calculation }: Course) {
   if (official) return "Итог требует повторной фиксации";
   if (control === "EXAM" && calculation.admissionStatus !== "Допущен") return calculation.admissionStatus;
   if (calculation.ready) return "Ожидает утверждения итога";
+  if (calculation.physical) return "Не выполнены условия зачёта";
   if (calculation.confirmedDebts.length) return "Есть задолженности";
   if (control === "EXAM" && !calculation.bestAttemptId) return "Допущен";
   if (calculation.sessionRequired) return "Требуется сессионная попытка";
@@ -43,6 +44,7 @@ function CourseSession({ course }: { course: Course }) {
           <div><dt>Баллы за семестр</dt><dd>{points(c.semesterScore)} / {points(c.semesterMax)}</dd></div>
           {exam && <div><dt>Экзаменационные баллы</dt><dd>{points(c.examScore)} / {points(c.examMax)}</dd></div>}
           <div><dt>Накопленный рейтинг</dt><dd>{points(c.total)} / 100</dd></div>
+          {c.physical && <div><dt>Подтверждённые посещения</dt><dd>{c.physical.visits} / 25</dd></div>}
           {c.ready && <div><dt>Расчётная оценка</dt><dd>{c.provisionalGrade} · {c.finalCalculatedRating} баллов</dd></div>}
           <div><dt>Утверждённый результат</dt><dd><OfficialResult official={official} /></dd></div>
         </dl>

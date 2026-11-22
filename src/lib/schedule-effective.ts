@@ -9,7 +9,8 @@ export const pairInclude = {
   } },
 } satisfies Prisma.ScheduleEntryInclude;
 export type RegularPair = Prisma.ScheduleEntryGetPayload<{ include: typeof pairInclude }>;
-export type ExceptionPair = Prisma.ScheduleExceptionGetPayload<{ include: typeof pairInclude }>;
+export const exceptionInclude = { ...pairInclude, physicalMakeup: { select: { id: true } } } satisfies Prisma.ScheduleExceptionInclude;
+export type ExceptionPair = Prisma.ScheduleExceptionGetPayload<{ include: typeof exceptionInclude }>;
 export type ScheduleRecords = { entries: RegularPair[]; exceptions: ExceptionPair[] };
 export type ScheduleDB = Pick<PrismaClient, "scheduleEntry" | "scheduleException">;
 export type PairStatus = "REGULAR" | "REPLACED" | "MOVED" | "MOVED_FROM" | "CANCELLED" | "ADDED";
@@ -20,7 +21,7 @@ export type EffectivePair = {
 export async function loadScheduleRecords(db: ScheduleDB): Promise<ScheduleRecords> {
   const [entries, exceptions] = await Promise.all([
     db.scheduleEntry.findMany({ where: { isDeleted: false }, include: pairInclude, take: 10001 }),
-    db.scheduleException.findMany({ where: { isActive: true }, include: pairInclude, take: 10001 }),
+    db.scheduleException.findMany({ where: { isActive: true }, include: exceptionInclude, take: 10001 }),
   ]);
   // Never silently omit records during conflict checks or effective reads.
   if (entries.length > 10000 || exceptions.length > 10000) throw new Error("Превышен объём расписания. Требуется расширение серверной выборки.");
@@ -31,7 +32,7 @@ export function occursOn(entry: RegularPair, date: Date) {
     && (date.getUTCDay() + 6) % 7 + 1 === entry.dayOfWeek
     && (entry.weekPattern === "EVERY" || entry.weekPattern === weekParity(date, entry.term.firstNumeratorMonday));
 }
-export function isPublicPair(record: RegularPair | ExceptionPair) {
+export function isPublicPair(record: Pick<RegularPair, "isPublished" | "term" | "room" | "lesson">) {
   return record.isPublished && record.term.isPublished && record.room.isPublic && record.room.building.isPublic
     && record.lesson.groups.length > 0 && record.lesson.groups.every(item => item.group.isPublic)
     && record.lesson.teachers.length > 0 && record.lesson.teachers.every(item => item.teacher.isSchedulePublic && item.teacher.publicName && item.teacher.scheduleSlug && item.teacher.user.role === "TEACHER");

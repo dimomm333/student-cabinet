@@ -392,6 +392,9 @@ enum Role {
 }
 
 model User {
+  peTransferDecisions PeTransfer[]
+  peHealthChanges PeHealth[] @relation("PeHealthAuthor")
+  peMembershipChanges PeMembership[] @relation("PeMembershipAuthor")
   portfolioAchievements PortfolioAchievement[]
   portfolioDecisions PortfolioDecision[]
   dormGrants DormGrant[]
@@ -587,6 +590,9 @@ model RateLimit {
 }
 
 model StudentProfile {
+  peHealth PeHealth[]
+  peEnrollments PeEnrollment[]
+  peBookings PeBooking[]
   passes StudentPass[]
   userId        String      @id
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -852,6 +858,7 @@ model StudyGroup {
 
 // Faculty is a category of departments; no separate faculty entity is needed yet.
 model AcademicDepartment {
+  usefulEntries UsefulEntry[]
   clearances ClearanceProcess[]
   id String @id @default(cuid())
   faculty String
@@ -865,6 +872,41 @@ model AcademicDepartment {
   militaryRecords MilitaryRecord[]
 
   @@unique([faculty, name])
+}
+
+enum UsefulKind {
+  ARTICLE
+  DIRECTORY
+  EXTERNAL
+}
+
+enum UsefulStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model UsefulEntry {
+  id                   String              @id @default(cuid())
+  parentId             String?
+  parent               UsefulEntry?        @relation("UsefulTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children             UsefulEntry[]       @relation("UsefulTree")
+  kind                 UsefulKind
+  status               UsefulStatus        @default(DRAFT)
+  title                String
+  description          String              @default("")
+  body                 String              @default("")
+  officialUrl          String?
+  contacts             String              @default("")
+  location             String              @default("")
+  sortOrder            Int                 @default(0)
+  academicDepartmentId String?
+  academicDepartment   AcademicDepartment? @relation(fields: [academicDepartmentId], references: [id], onDelete: Restrict)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([parentId, sortOrder])
+  @@index([academicDepartmentId])
 }
 
 model Discipline {
@@ -903,6 +945,7 @@ model Room {
 // Dates are date-only values represented at UTC midnight. Local timetable times
 // are minutes after midnight in the term's time zone, never browser-local times.
 model AcademicTerm {
+  peEnrollments PeEnrollment[]
   materials LearningMaterial[]
   materialFolders MaterialFolder[]
   id                   String          @id @default(cuid())
@@ -945,6 +988,7 @@ enum BrsControl {
 }
 
 enum BrsEventKind {
+  STANDARD
   HOMEWORK
   LAB
   INTERIM
@@ -971,6 +1015,7 @@ model BrsPlan {
   admissions BrsAdmission[]
   attempts BrsExamAttempt[]
   finals BrsFinal[]
+  physicalGroup PeGroup?
   @@unique([groupId, disciplineId, termId])
 }
 
@@ -1026,6 +1071,7 @@ model BrsEvent {
   occurrenceId String?
   occurrence BrsOccurrence? @relation(fields: [occurrenceId], references: [id], onDelete: Restrict)
   results BrsResult[]
+  physicalWork PeWork?
   @@index([moduleId])
 }
 
@@ -1230,6 +1276,7 @@ model ScheduleException {
   version Int @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  physicalMakeup PeMakeup?
 
   @@unique([entryId, sourceDate])
   @@index([date, isActive])
@@ -1256,6 +1303,159 @@ model ScheduleAudit {
 
   @@index([createdAt])
   @@index([objectId])
+}
+
+enum PeHealthCategory {
+  MAIN
+  PREPARATORY
+  SPECIAL
+  INDIVIDUAL
+}
+
+model PeHealth {
+  id String @id @default(cuid())
+  studentId String
+  student StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Restrict)
+  authorId String
+  author User @relation("PeHealthAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  category PeHealthCategory
+  creditConditions String @default("")
+  assignedAt DateTime @default(now())
+
+  @@index([studentId, assignedAt])
+}
+
+model PeDirection {
+  id String @id @default(cuid())
+  name String @unique
+  groups PeGroup[]
+}
+
+// The plan points to the private StudyGroup, term and discipline used by the
+// ordinary timetable, teaching assignments and final credit workflow.
+model PeGroup {
+  transferSources PeTransfer[] @relation("PeTransferSource")
+  transferTargets PeTransfer[] @relation("PeTransferTarget")
+  id String @id @default(cuid())
+  planId String @unique
+  plan BrsPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  name String
+  directionId String
+  direction PeDirection @relation(fields: [directionId], references: [id], onDelete: Restrict)
+  capacity Int @default(30)
+  registrationOpen Boolean @default(false)
+  registrationFrom DateTime
+  registrationUntil DateTime
+  categories PeGroupCategory[]
+  enrollments PeEnrollment[]
+  memberships PeMembership[]
+  makeups PeMakeup[]
+}
+
+model PeGroupCategory {
+  groupId String
+  group PeGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  category PeHealthCategory
+  @@id([groupId, category])
+}
+
+model PeEnrollment {
+  transfers PeTransfer[]
+  id String @id @default(cuid())
+  studentId String
+  student StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Restrict)
+  termId String
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  groupId String
+  group PeGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  memberships PeMembership[]
+  @@unique([studentId, termId])
+  @@index([groupId])
+}
+
+enum PeTransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model PeTransfer {
+  id String @id @default(cuid())
+  enrollmentId String
+  enrollment PeEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  fromGroupId String
+  fromGroup PeGroup @relation("PeTransferSource", fields: [fromGroupId], references: [id], onDelete: Restrict)
+  toGroupId String
+  toGroup PeGroup @relation("PeTransferTarget", fields: [toGroupId], references: [id], onDelete: Restrict)
+  status PeTransferStatus @default(PENDING)
+  // Closed requests use NULL so the unique key permits unlimited history.
+  active Boolean? @default(true)
+  comment String @default("")
+  reason String @default("")
+  createdAt DateTime @default(now())
+  decidedAt DateTime?
+  decidedById String?
+  decidedBy User? @relation(fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@unique([enrollmentId, active])
+  @@index([status, createdAt])
+}
+
+model PeMembership {
+  id String @id @default(cuid())
+  enrollmentId String
+  enrollment PeEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  groupId String
+  group PeGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  authorId String
+  author User @relation("PeMembershipAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  // Real instants for transfer cutoffs. The initial membership covers the entire term.
+  startsAt DateTime?
+  endsAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([enrollmentId, endsAt])
+  @@index([groupId])
+}
+
+model PeWork {
+  eventId String @id
+  event BrsEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  description String
+  measurement String
+  criteria String
+  categories PeWorkCategory[]
+}
+
+model PeWorkCategory {
+  eventId String
+  work PeWork @relation(fields: [eventId], references: [eventId], onDelete: Restrict)
+  category PeHealthCategory
+  @@id([eventId, category])
+}
+
+model PeMakeup {
+  id String @id @default(cuid())
+  groupId String
+  group PeGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  exceptionId String @unique
+  exception ScheduleException @relation(fields: [exceptionId], references: [id], onDelete: Restrict)
+  capacity Int
+  bookingUntil DateTime
+  comment String @default("")
+  bookings PeBooking[]
+  @@index([groupId])
+}
+
+model PeBooking {
+  makeupId String
+  makeup PeMakeup @relation(fields: [makeupId], references: [id], onDelete: Restrict)
+  studentId String
+  student StudentProfile @relation(fields: [studentId], references: [userId], onDelete: Restrict)
+  cancelledAt DateTime?
+  createdAt DateTime @default(now())
+  @@id([makeupId, studentId])
+  @@index([studentId, cancelledAt])
 }
 
 model ScheduleAuditGroup {

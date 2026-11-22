@@ -32,7 +32,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
           <p className="nav-group-label">{group}</p>
           {sections.filter((item) => item.group === group).map((item) => {
             const href = "/dashboard/" + item.slug;
-            const active = pathname === href;
+            const active = pathname === href || pathname.startsWith(href + "/");
 
             return (
               <Link
@@ -46,7 +46,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
                 }}
                 href={href}
                 className={"nav-item" + (active ? " active" : "")}
-                aria-current={active ? "page" : undefined}
+                aria-current={pathname === href ? "page" : active ? "location" : undefined}
               >
                 <Icon name={item.icon} /><span>{item.title}</span>{item.slug === "notifications" && <NotificationBadge />}
               </Link>
@@ -61,7 +61,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
 export function DashboardShell({ children, name }: { children: React.ReactNode; name: string }) {
   const pathname = usePathname();
   const menu = useRef<HTMLDialogElement>(null);
-  const currentSection = sections.find((section) => pathname === "/dashboard/" + section.slug);
+  const currentSection = sections.find((section) => section.slug === pathname.split("/")[2]);
   const closeMenu = () => menu.current?.close();
 
   return (

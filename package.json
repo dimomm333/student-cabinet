@@ -7,6 +7,10 @@
     "node": "^22.18.0 || ^24.0.0 || ^26.0.0"
   },
   "scripts": {
+    "demo:physical-education:local": "node --env-file-if-exists=.env --conditions=react-server scripts/prepare-physical-education.mjs --apply",
+    "test:physical-education": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-physical-education.mjs",
+    "db:useful": "node --env-file-if-exists=.env scripts/prepare-useful.mjs --apply",
+    "test:useful": "node --env-file-if-exists=.env scripts/verify-cabinet-navigation.mjs --useful",
     "db:dormitory": "node --env-file-if-exists=.env scripts/prepare-clearance.mjs --dormitory",
     "demo:dormitory": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-dormitory.mjs --demo",
     "test:dormitory": "node --env-file-if-exists=.env --conditions=react-server scripts/verify-dormitory.mjs",

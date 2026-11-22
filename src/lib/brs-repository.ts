@@ -5,6 +5,7 @@ import { isSessionWithinLifetime } from "./session-policy.ts";
 import { calculateBrs, effectiveModules, numberControlModules, officialState, workStatus } from "./brs-rules.ts";
 import { brsSchedule } from "./brs-schedule.ts";
 import { isoDate, currentAcademicDate, academicWeeks } from "./schedule-calendar.ts";
+import { isPhysicalPlan, physicalCalculation } from "./physical-education-brs.ts";
 
 export type BrsActor = { id: string; role: string; sessionId?: string };
 export type BrsDB = Prisma.TransactionClient;
@@ -32,6 +33,10 @@ export async function authorizePlan(db: BrsDB, actor: BrsActor, planId: string) 
     const assignment = await db.teachingAssignment.findFirst({ where: { teacherId: actor.id, groupId: plan.groupId, disciplineId: plan.disciplineId, termId: plan.termId, isActive: true, teacher: { role: "TEACHER" } } });
     if (!assignment) fail("Действующее учебное назначение отсутствует.", 403);
   } else {
+    if (isPhysicalPlan(plan)) {
+      if (!plan.publishedAt || !await db.peEnrollment.findFirst({ where: { studentId: actor.id, group: { planId }, student: { user: { role: "STUDENT" } } } })) fail("План недоступен.", 403);
+      return plan;
+    }
     const profile = await db.studentProfile.findUnique({ where: { userId: actor.id }, select: { groupId: true } });
     const history = await db.brsResult.count({ where: { studentId: actor.id, event: { module: { planId } } } })
       + await db.brsExamAttempt.count({ where: { planId, studentId: actor.id } })
@@ -43,10 +48,15 @@ export async function authorizePlan(db: BrsDB, actor: BrsActor, planId: string) 
 }
 export async function studentInPlan(db: BrsDB, actor: BrsActor, plan: FullPlan, studentId: string, allowHistory = false) {
   if (actor.role === "STUDENT" && actor.id !== studentId) fail("Студент недоступен.", 403);
+  if (isPhysicalPlan(plan)) {
+    if (!await db.peEnrollment.findFirst({ where: { studentId, group: { planId: plan.id }, student: { user: { role: "STUDENT" } } } })) fail("Студент не входит в выбранную группу.", 403);
+    return;
+  }
   const profile = await db.studentProfile.findFirst({ where: { userId: studentId, user: { role: "STUDENT" } }, select: { groupId: true } });
   if (profile?.groupId !== plan.groupId && !allowHistory) fail("Студент не входит в выбранную группу.", 403);
 }
 export async function calculateStudent(db: BrsDB, plan: FullPlan, studentId: string, today = isoDate(currentAcademicDate())) {
+  if (isPhysicalPlan(plan)) return physicalCalculation(db, plan, studentId);
   const results = bounded(await db.brsResult.findMany({ where: { studentId, event: { module: { planId: plan.id } } } }), 5000);
   const attempts = bounded(await db.brsExamAttempt.findMany({ where: { planId: plan.id, studentId }, orderBy: { number: "asc" } }), 200);
   const admission = await db.brsAdmission.findUnique({ where: { planId_studentId: { planId: plan.id, studentId } } });
@@ -55,7 +65,10 @@ export async function calculateStudent(db: BrsDB, plan: FullPlan, studentId: str
   return { calculation: calculateBrs(plan.control, modules, attempts, admission, today), results, attempts, admission, attendance, modules };
 }
 export function studentPlansWhere(userId: string): Prisma.BrsPlanWhereInput {
-  return { publishedAt: { not: null }, OR: [{ group: { students: { some: { userId } } } }, { modules: { some: { events: { some: { results: { some: { studentId: userId } } } } } } }, { attempts: { some: { studentId: userId } } }, { occurrences: { some: { attendance: { some: { studentId: userId } } } } }, { finals: { some: { studentId: userId } } }] };
+  return { publishedAt: { not: null }, OR: [
+    { physicalGroup: { enrollments: { some: { studentId: userId } } } },
+    { physicalGroup: { is: null }, OR: [{ group: { students: { some: { userId } } } }, { modules: { some: { events: { some: { results: { some: { studentId: userId } } } } } } }, { attempts: { some: { studentId: userId } } }, { occurrences: { some: { attendance: { some: { studentId: userId } } } } }, { finals: { some: { studentId: userId } } }] },
+  ] };
 }
 export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId = "") {
   return db.$transaction(async tx => {
@@ -79,7 +92,11 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
     } : null;
     if (!selectedId) return { role: actor.role, actorId: actor.id, plans, catalog, overview: [], selected: null };
     const plan = await authorizePlan(tx, actor, selectedId);
-    const where: Prisma.UserWhereInput = actor.role === "STUDENT" ? { id: actor.id } : { role: "STUDENT", OR: [{ studentProfile: { groupId: plan.groupId } }, ...(actor.role === "TEACHER" ? [{ brsResults: { some: { event: { module: { planId: plan.id } } } } }, { brsAttendance: { some: { occurrence: { planId: plan.id } } } }, { brsAttempts: { some: { planId: plan.id } } }] : [])] };
+    const physical = isPhysicalPlan(plan);
+    const where: Prisma.UserWhereInput = actor.role === "STUDENT" ? { id: actor.id }
+      : physical ? { role: "STUDENT", studentProfile: { peEnrollments: { some: { group: { planId: plan.id } } },
+        ...(actor.role === "DEANERY_STAFF" ? { group: deaneryGroupWhere(actor) } : {}) } }
+      : { role: "STUDENT", OR: [{ studentProfile: { groupId: plan.groupId } }, ...(actor.role === "TEACHER" ? [{ brsResults: { some: { event: { module: { planId: plan.id } } } } }, { brsAttendance: { some: { occurrence: { planId: plan.id } } } }, { brsAttempts: { some: { planId: plan.id } } }] : [])] };
     const roster = bounded(await tx.user.findMany({ where, select: { id: true, name: true, studentProfile: { select: { groupId: true } } }, orderBy: { name: "asc" }, take: 1001 }), 1000);
     const studentIds = roster.map(student => student.id);
     const results = bounded(await tx.brsResult.findMany({ where: { studentId: { in: studentIds }, event: { module: { planId: plan.id } } }, select: {
@@ -104,16 +121,18 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
     });
     const history = actor.role === "DEANERY_STAFF" ? await tx.brsAudit.findMany({ where: { planId: plan.id, action: { in: ["CONFIRM", "REVOKE", "INVALIDATE"] }, objectId: { in: studentIds } }, select: { id: true, objectId: true, action: true, reason: true, createdAt: true, actor: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 201 }) : [];
     const today = isoDate(currentAcademicDate());
-    const students = roster.map(student => {
+    const ownPhysical = physical && actor.role === "STUDENT" ? await physicalCalculation(tx, plan, actor.id) : null;
+    const students = await Promise.all(roster.map(async student => {
       const studentResults = safeResults.filter(result => result.studentId === student.id);
       const studentAttempts = safeAttempts.filter(attempt => attempt.studentId === student.id);
       const admission = admissions.find(item => item.studentId === student.id) ?? null;
       const modules = effectiveModules(plan.modules, studentResults, attendance.filter(item => item.studentId === student.id));
-      const calculation = calculateBrs(plan.control, modules, studentAttempts, admission, today);
-      return { id: student.id, name: student.name, former: student.studentProfile?.groupId !== plan.groupId, results: studentResults, attempts: studentAttempts, admission,
+      const calculation = ownPhysical?.calculation ?? (physical ? (await physicalCalculation(tx, plan, student.id)).calculation : calculateBrs(plan.control, modules, studentAttempts, admission, today));
+      return { id: student.id, name: student.name, former: !physical && student.studentProfile?.groupId !== plan.groupId, results: studentResults, attempts: studentAttempts, admission,
         attendance: attendance.filter(item => item.studentId === student.id), official: officialState(finals.find(item => item.studentId === student.id) ?? null, calculation), calculation };
-    });
-    const modules = numberControlModules(plan.modules).map(brsModule => ({ ...brsModule, events: brsModule.events.map(event => ({ ...event,
+    }));
+    const ownEventIds = ownPhysical && new Set(ownPhysical.modules.flatMap(item => item.events.map(event => event.id)));
+    const modules = numberControlModules(plan.modules.map(item => ({ ...item, events: item.events.filter(event => !ownEventIds || ownEventIds.has(event.id)) }))).map(brsModule => ({ ...brsModule, events: brsModule.events.map(event => ({ ...event,
       actualOn: event.occurrenceId ? occurrences.find(occurrence => occurrence.id === event.occurrenceId)?.actualDate ?? (event.plannedOn ? isoDate(event.plannedOn) : null) : event.plannedOn ? isoDate(event.plannedOn) : null,
       scheduleConflict: !!event.occurrenceId && !!occurrences.find(occurrence => occurrence.id === event.occurrenceId)?.conflict,
     })) }));
@@ -127,7 +146,7 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
     }), 1000) : [];
     for (const item of overviewPlans) {
       const course = item.id === plan.id ? plan : await authorizePlan(tx, actor, item.id);
-      const own = await calculateStudent(tx, course, actor.id, today);
+      const own = course.id === plan.id && ownPhysical ? ownPhysical : await calculateStudent(tx, course, actor.id, today);
       const ownSchedule = course.id === plan.id ? schedule : await brsSchedule(tx, course);
       overview.push({ id: course.id, title: course.discipline.title, control: course.control, calculation: own.calculation,
         examOn: course.examOn ? isoDate(course.examOn) : null,
