@@ -149,7 +149,7 @@ try {
     for (let i = 0; i < 120; i++) { try { if ((await fetch(base + '/login')).ok) break; } catch {} await new Promise(r => setTimeout(r, 500)); }
     browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? 'chrome', headless: true });
     async function signed(email, pwd, home) {
-      const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+      const context = await browser.newContext({ viewport: { width: 1366, height: 900 }, timezoneId: 'America/Los_Angeles' });
       assert.equal((await context.request.post(base + '/api/auth/sign-in/email', { headers: { Origin: base }, data: { email, password: pwd } })).status(), 200);
       const page = await context.newPage();
       page.on('pageerror', e => diagnostics.push(e.message)); page.on('console', m => { if (/Next\.js encountered|Blocking Route|Instant validation/.test(m.text())) diagnostics.push(m.text()); });
@@ -163,7 +163,24 @@ try {
     await ap.getByText('Подразделения (', { exact: false }).first().click(); await expect(ap.locator('.clearance-settings strong').filter({ hasText: /^Библиотека$/ })).toBeVisible();
     await ap.getByRole('button', { name: 'Добавить подразделение', exact: true }).click();
     await ap.getByRole('dialog').getByLabel('Название', { exact: true }).fill('Служба конкурсной проверки'); await ap.getByLabel('Внутренний код', { exact: true }).fill('competition-check'); await ap.getByLabel('Описание проверки', { exact: true }).fill('Подтверждение возврата материалов.'); await ap.getByLabel('Контакты', { exact: true }).fill('Корпус Б, кабинет 102'); await ap.getByLabel('Причина изменения', { exact: true }).fill('Настройка через экран администратора.'); await ap.getByRole('button', { name: 'Сохранить настройки', exact: true }).click(); await expect(ap.getByRole('dialog')).toHaveCount(0);
-    await dp.getByText('Создать обходной лист', { exact: true }).click(); await dp.locator('select[name=studentId]').selectOption(users.STUDENT.id); await dp.locator('select[name=templateId]').selectOption('clearance-standard-transfer'); await dp.getByLabel('Основание оформления', { exact: true }).fill('Подготовка к переводу по решению деканата.'); await dp.getByRole('button', { name: 'Подготовить черновик', exact: true }).click(); await expect(dp.getByRole('button', { name: 'Открыть обходной лист', exact: true })).toBeDisabled(); await expect(dp.locator('.clearance-summary')).toContainText('Черновик');
+    await dp.getByText('Создать обходной лист', { exact: true }).click(); await dp.locator('select[name=studentId]').selectOption(users.STUDENT.id); await dp.locator('select[name=templateId]').selectOption('clearance-standard-transfer'); await dp.getByLabel('Основание оформления', { exact: true }).fill('Подготовка к переводу по решению деканата.');
+    const started = dp.getByLabel('Дата начала', { exact: true });
+    await started.fill('28.02.2028');
+    const planned = dp.getByLabel('Планируемое завершение', { exact: true });
+    await planned.fill('29.02.2028');
+    await planned.press('ArrowDown');
+    await dp.locator('.schedule-calendar [data-date="2028-02-29"]').click();
+    const order = dp.getByLabel('Дата приказа', { exact: true });
+    await order.fill('27.02.2028');
+    await order.press('ArrowDown');
+    await dp.getByRole('button', { name: 'Очистить', exact: true }).click();
+    await expect(order).toHaveValue('');
+    await order.fill('29.02.2028');
+    await dp.getByRole('button', { name: 'Подготовить черновик', exact: true }).click(); await expect(dp.getByRole('button', { name: 'Открыть обходной лист', exact: true })).toBeDisabled(); await expect(dp.locator('.clearance-summary')).toContainText('Черновик');
+    const draftWithDates = await db.clearanceProcess.findFirstOrThrow({ where: { basisNote: 'Подготовка к переводу по решению деканата.' } });
+    assert.deepEqual([draftWithDates.startsOn, draftWithDates.plannedOn, draftWithDates.orderDate].map(date => date.toISOString().slice(0, 10)), ['2028-02-28', '2028-02-29', '2028-02-29']);
+    await dp.reload();
+    await expect(dp.locator('.clearance-summary')).toContainText('29.02.2028');
     await dp.getByRole('button', { name: 'Отменить процесс', exact: true }).click(); await dp.getByLabel('Обоснование', { exact: true }).fill('Создание через форму проверено, процедура отменена.'); await dp.getByLabel('Подтверждаю обоснованность решения', { exact: true }).check(); await dp.getByRole('dialog').getByRole('button', { name: 'Подтвердить', exact: true }).click(); await expect(dp.getByRole('dialog')).toHaveCount(0); await dp.getByRole('button', { name: 'Все обходные листы', exact: true }).click();
     pass('Browser admin configuration and deanery draft creation with optional blank application ID, unknown applicability and confirmed cancellation');
     await sp.goto(base + '/dashboard/clearance?id=' + processId); await expect(sp.getByText('Не возвращена книга «Высшая математика».', { exact: true }).first()).toBeVisible();
@@ -177,7 +194,17 @@ try {
     await sp.setViewportSize({ width: 390, height: 900 }); await sp.getByRole('button', { name: 'Сообщить об устранении', exact: true }).click();
     await expect(sp.getByRole('dialog')).toBeVisible(); await sp.getByLabel('Что сделано', { exact: true }).fill('Книга возвращена в библиотеку. Прошу проверить.'); await sp.screenshot({ path: resolve(root, 'student-reply-dialog-390.png') }); await sp.getByRole('dialog').getByRole('button', { name: 'Подтвердить', exact: true }).click(); await expect(sp.getByRole('dialog')).toHaveCount(0);
     await expect(sp.getByText('Ожидает повторной проверки', { exact: true })).toBeVisible();
-    await wp.goto(base + '/staff/clearance?id=' + processId); await wp.getByRole('button', { name: 'Вернуть на устранение', exact: true }).click(); await wp.getByLabel('Обоснование', { exact: true }).fill('Уточните экземпляр возвращённой книги.'); await wp.getByRole('dialog').getByRole('button', { name: 'Подтвердить', exact: true }).click(); await expect(wp.getByRole('dialog')).toHaveCount(0);
+    await wp.goto(base + '/staff/clearance?id=' + processId);
+    await wp.getByRole('button', { name: 'Добавить замечание', exact: true }).first().click();
+    const remarkDialog = wp.locator('dialog.clearance-dialog');
+    const due = remarkDialog.getByLabel('Срок устранения', { exact: true });
+    await due.fill('01.03.2028');
+    await due.press('ArrowDown');
+    await remarkDialog.locator('[data-date="2028-02-29"]').click();
+    await expect(remarkDialog.locator('input[name=dueOn]')).toHaveValue('2028-02-29');
+    await wp.keyboard.press('Escape');
+    await expect(remarkDialog).toBeHidden();
+    await wp.getByRole('button', { name: 'Вернуть на устранение', exact: true }).click(); await wp.getByLabel('Обоснование', { exact: true }).fill('Уточните экземпляр возвращённой книги.'); await wp.getByRole('dialog').getByRole('button', { name: 'Подтвердить', exact: true }).click(); await expect(wp.getByRole('dialog')).toHaveCount(0);
     await sp.reload(); await sp.getByRole('button', { name: 'Сообщить об устранении', exact: true }).click(); await sp.getByLabel('Что сделано', { exact: true }).fill('Возвращён экземпляр 2026-001. Проверено у стойки выдачи.'); await sp.getByRole('dialog').getByRole('button', { name: 'Подтвердить', exact: true }).click(); await expect(sp.getByRole('dialog')).toHaveCount(0);
     await wp.reload(); await wp.screenshot({ path: resolve(root, 'library-recheck.png'), fullPage: true }); await wp.getByRole('button', { name: 'Согласовать', exact: true }).click(); await wp.getByLabel('Результат проверки', { exact: true }).fill('Возврат экземпляра подтверждён библиотекой. Задолженность устранена.'); await wp.getByRole('dialog').getByRole('button', { name: 'Подтвердить', exact: true }).click(); await expect(wp.getByRole('dialog')).toHaveCount(0);
     await dp.goto(base + '/deanery/clearance?id=' + processId); await dp.getByRole('button', { name: 'Завершить обходной лист', exact: true }).click(); await dp.getByRole('dialog').getByRole('button', { name: 'Подтвердить', exact: true }).click(); await expect(dp.getByRole('dialog')).toHaveCount(0, { timeout: 30000 });

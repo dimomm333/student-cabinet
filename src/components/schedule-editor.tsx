@@ -5,10 +5,10 @@ import { presentAcademicText } from "@/lib/presentation-copy";
 import Link from "next/link";
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 import type { ScheduleEditorModel } from "@/lib/schedule-editor-repository";
-import { DAY_MS, WEEK_MS, dayNames, isoDate, shortDayNames, weekRangeLabel } from "@/lib/schedule-calendar";
+import { DAY_MS, WEEK_MS, dayNames, isoDate, scheduleDateBounds, shortDayNames, weekRangeLabel } from "@/lib/schedule-calendar";
 import { saveSchedule } from "@/app/deanery/schedule/actions";
 import { ScheduleWeekPicker } from "./schedule-week-picker";
-import { ScheduleDatePicker } from "./schedule-date-picker";
+import { DatePicker } from "./date-picker";
 import { LessonCard } from "./schedule-view";
 
 import { ScheduleTimeFields } from "./schedule-time-fields";
@@ -90,9 +90,9 @@ function EditorForm({ model, target, onClose }: { model: ScheduleEditorModel; ta
           <SearchChecks label="Преподаватели" name="teacherIds" options={model.teachers.map(teacher => ({ id: teacher.id, name: teacher.name + (teacher.public ? "" : " · не опубликован") }))} initial={values?.teacherIds ?? []} />
           <SearchSelect label="Дисциплина" name="disciplineId" options={model.disciplines.map(item => ({ id: item.id, name: item.title }))} initial={values?.disciplineId} />
           <SearchSelect label="Корпус и аудитория" name="roomId" options={model.rooms.map(item => ({ id: item.id, name: item.name + (item.public ? "" : " · не опубликована") }))} initial={values?.roomId} />
-          <SearchSelect label="Учебный период" name="termId" options={model.terms.map(item => ({ id: item.id, name: `${presentAcademicText(item.name)} (${item.startsOn} — ${item.endsOn})${item.published ? "" : " · не опубликован"}` }))} initial={values?.termId} />
+          <SearchSelect label="Учебный период" name="termId" options={model.terms.map(item => ({ id: item.id, name: `${presentAcademicText(item.name)} (${weekRangeLabel(item.startsOn, item.endsOn)})${item.published ? "" : " · не опубликован"}` }))} initial={values?.termId} />
           <div className="editor-field"><label htmlFor="editor-kind">Тип занятия</label><select id="editor-kind" name="kind" defaultValue={values?.kind ?? "LECTURE"}><option value="LECTURE">Лекция</option><option value="PRACTICE">Практика</option><option value="SEMINAR">Семинар</option><option value="LAB">Лабораторная</option></select></div>
-          {target.mode === "CREATE" || target.mode === "UPDATE" ? <><div className="editor-field"><label htmlFor="editor-weekday">День недели</label><select id="editor-weekday" name="dayOfWeek" defaultValue={values?.dayOfWeek ?? 1}>{dayNames.map((day, index) => <option key={day} value={index + 1}>{day}</option>)}</select></div><div className="editor-field"><label htmlFor="editor-pattern">Повторение</label><select id="editor-pattern" name="weekPattern" defaultValue={values?.weekPattern ?? "EVERY"}><option value="EVERY">Каждую неделю</option><option value="NUMERATOR">Числитель</option><option value="DENOMINATOR">Знаменатель</option></select></div></> : <ScheduleDatePicker selected={date} name="date" label="Дата разового занятия" onSelect={() => {}} />}
+          {target.mode === "CREATE" || target.mode === "UPDATE" ? <><div className="editor-field"><label htmlFor="editor-weekday">День недели</label><select id="editor-weekday" name="dayOfWeek" defaultValue={values?.dayOfWeek ?? 1}>{dayNames.map((day, index) => <option key={day} value={index + 1}>{day}</option>)}</select></div><div className="editor-field"><label htmlFor="editor-pattern">Повторение</label><select id="editor-pattern" name="weekPattern" defaultValue={values?.weekPattern ?? "EVERY"}><option value="EVERY">Каждую неделю</option><option value="NUMERATOR">Числитель</option><option value="DENOMINATOR">Знаменатель</option></select></div></> : <DatePicker name="date" label="Дата разового занятия" defaultValue={date} {...scheduleDateBounds} required confirmInput formFormat="ru" />}
           <ScheduleTimeFields start={values?.start} end={values?.end} />
           <label className="editor-publish"><input type="checkbox" name="isPublished" defaultChecked={values?.isPublished ?? true} /> Опубликовать занятие</label><p>В открытом расписании показываются только опубликованные занятия с публичными группами, преподавателями, аудиторией и периодом.</p>
         </div>}

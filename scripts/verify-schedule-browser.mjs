@@ -9,6 +9,7 @@ import { hashPassword } from "better-auth/crypto";
 import { getDatabaseUrl } from "../src/lib/database-url.ts";
 import { createPrismaClient } from "../src/lib/prisma-client.ts";
 import { currentAcademicDate, formatDateInput, isoDate, mondayOf } from "../src/lib/schedule-calendar.ts";
+import { verifyTouchCalendar } from "./calendar-touch-checks.mjs";
 
 // All credentials, sessions and fixture edits belong to a SQLite copy.
 mkdirSync(".local", { recursive: true });
@@ -118,6 +119,42 @@ try {
   assert(ready, "Browser test server not ready");
   // Use installed Chrome, or set PLAYWRIGHT_CHANNEL=msedge; no browser download.
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome", headless: true });
+  const touch = await browser.newContext({ viewport: { width: 360, height: 640 }, isMobile: true, hasTouch: true,
+    timezoneId: "America/Los_Angeles", reducedMotion: "reduce" });
+  const phoneMatrix = await touch.newPage();
+  phoneMatrix.on("pageerror", error => errors.push(error.message));
+  await phoneMatrix.goto(base + "/schedule?group=pi-24-1&week=2026-11-09");
+  const picker = phoneMatrix.locator(".schedule-date-picker");
+  for (const theme of ["light", "dark"]) {
+    await phoneMatrix.locator("html").evaluate((html, value) => html.setAttribute("data-theme", value), theme);
+    for (const width of [320, 346, 360, 390, 768]) {
+      await phoneMatrix.setViewportSize({ width, height: 640 });
+      await verifyTouchCalendar(phoneMatrix, picker);
+    }
+    await phoneMatrix.setViewportSize({ width: 360, height: 250 });
+    await verifyTouchCalendar(phoneMatrix, picker, { short: true });
+  }
+  await phoneMatrix.setViewportSize({ width: 360, height: 640 });
+  await phoneMatrix.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }));
+  const trigger = picker.getByRole("button", { name: "Открыть календарь", exact: true });
+  await trigger.tap();
+  await picker.locator('[data-date="2026-11-11"]').tap();
+  await expect(picker.locator('input[type=text]')).toHaveValue("11.11.2026");
+  await expect(picker.locator(".schedule-calendar")).toBeHidden();
+  await trigger.tap();
+  await expect(picker.locator('[data-date="2026-11-11"]')).toHaveAttribute("aria-pressed", "true");
+  const reopened = picker.locator(".schedule-calendar");
+  for (const height of [280, 640]) {
+    await phoneMatrix.setViewportSize({ width: 360, height });
+    await expect.poll(() => reopened.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return Math.abs(visualViewport.height - box.bottom - 8) < 1 && box.top >= 0;
+    })).toBe(true);
+    await expect(reopened.locator('[aria-pressed="true"]')).toHaveAttribute("data-date", "2026-11-11");
+  }
+  await phoneMatrix.screenshot({ path: resolve(folder, "calendar-touch-360.png") });
+  await touch.close();
+  pass("Native touch scroll, month/year changes and date selection", { widths: [320, 346, 360, 390, 768], themes: 2, shortViewport: "360x250" });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, timezoneId: "Asia/Vladivostok", reducedMotion: "reduce" });
   const page = await context.newPage();
   page.on("pageerror", error => errors.push(error.message));
@@ -206,9 +243,9 @@ try {
     const privateContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: "reduce" });
     const privatePage = await privateContext.newPage(); privatePage.on("pageerror", error => errors.push(error.message));
     await privatePage.goto(base + "/login");
-    await privatePage.getByLabel(/email/i).fill(email);
+    await privatePage.getByLabel("Университетская почта", { exact: true }).fill(email);
     await privatePage.getByLabel("Пароль", { exact: true }).fill(password);
-    await privatePage.getByRole("button", { name: "Войти в кабинет", exact: true }).click();
+    await privatePage.locator(".login-form button[type=submit]").click();
     await privatePage.waitForURL(base + home);
     if (home === "/dashboard") await expect(privatePage.getByRole("heading", { name: "Расписание", exact: true })).toBeVisible();
     await privatePage.goto(base + home + "/schedule?week=2026-11-09&group=it-25-1&teacher=anna-belova&userId=foreign");

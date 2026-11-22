@@ -118,11 +118,24 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
       scheduleConflict: !!event.occurrenceId && !!occurrences.find(occurrence => occurrence.id === event.occurrenceId)?.conflict,
     })) }));
     const overview = [];
-    if (actor.role === "STUDENT") for (const item of bounded(plans.filter(item => item.termId === plan.termId), 50)) {
+    const overviewPlans = actor.role === "STUDENT" ? bounded(plans.filter(item => item.termId === plan.termId), 50) : [];
+    const assignments = overviewPlans.length ? bounded(await tx.teachingAssignment.findMany({
+      where: { termId: plan.termId, isActive: true, teacher: { role: "TEACHER" },
+        OR: overviewPlans.map(({ groupId, disciplineId }) => ({ groupId, disciplineId })) },
+      select: { groupId: true, disciplineId: true, teacher: { select: { name: true } } },
+      orderBy: { teacher: { name: "asc" } }, take: 1001,
+    }), 1000) : [];
+    for (const item of overviewPlans) {
       const course = item.id === plan.id ? plan : await authorizePlan(tx, actor, item.id);
-      const own = await calculateStudent(tx, course, actor.id);
+      const own = await calculateStudent(tx, course, actor.id, today);
       const ownSchedule = course.id === plan.id ? schedule : await brsSchedule(tx, course);
       overview.push({ id: course.id, title: course.discipline.title, control: course.control, calculation: own.calculation,
+        examOn: course.examOn ? isoDate(course.examOn) : null,
+        teachers: assignments.filter(assignment => assignment.groupId === course.groupId && assignment.disciplineId === course.disciplineId).map(assignment => assignment.teacher.name),
+        admission: own.admission ? { reason: own.admission.reason, decidedAt: own.admission.decidedAt } : null,
+        attempts: own.attempts.map(({ id, number, heldOn, score, passed, deleted, commentVisible, comment }) => ({
+          id, number, heldOn: isoDate(heldOn), score, passed, deleted, comment: commentVisible ? comment : "",
+        })),
         attendance: own.attendance.map(item => ({ occurrenceId: item.occurrenceId, mark: item.mark })),
         occurrences: course.occurrences.map(item => {
           const live = ownSchedule.find(pair => pair.sourceKey === item.sourceKey);
@@ -133,7 +146,7 @@ export async function getBrsWorkspace(db: PrismaClient, actor: BrsActor, planId 
           score: event.result && !event.result.deleted ? event.result.score : null, status: workStatus(event, event.result),
           comment: own.results.find(result => result.eventId === event.id && !result.deleted && result.commentVisible)?.comment ?? "",
         })) })),
-        official: officialState(await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: course.id, studentId: actor.id } }, select: { score: true, grade: true, rating: true, needsReview: true } }), own.calculation) });
+        official: officialState(await tx.brsFinal.findUnique({ where: { planId_studentId: { planId: course.id, studentId: actor.id } }, select: { score: true, grade: true, rating: true, needsReview: true, approvedAt: true, author: { select: { name: true } } } }), own.calculation) });
     }
     return { role: actor.role, actorId: actor.id, plans, catalog, overview, selected: { ...plan, modules, occurrences, students, schedule, history,
       weeks: academicWeeks(isoDate(plan.term.startsOn), isoDate(plan.term.endsOn)), today } };

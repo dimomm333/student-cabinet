@@ -1,4 +1,6 @@
 "use client";
+import { formatDateInput } from "@/lib/schedule-calendar";
+import { DatePicker } from "./date-picker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
@@ -43,6 +45,7 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
   const [saveState, setSaveState] = useState("Сохранено");
   const [uploadState, setUploadState] = useState<{ name: string; size: number; percent: number; status: string; reason?: string } | null>(null);
   const photoPicker = useRef<HTMLInputElement>(null);
+  const dateFields = useRef<HTMLFieldSetElement>(null);
   const [photos, setPhotos] = useState<{ id: string; file: File }[]>([]);
   const [refreshAvailable, setRefreshAvailable] = useState(false);
   const recovery = recoveryKey(ownerId, id);
@@ -105,7 +108,7 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
   }
   const refreshStatus = useEffectEvent(async () => {
     const base = current.current;
-    const editing = () => document.activeElement?.matches(".services-detail :is(textarea, select, input:not([type=checkbox]))");
+    const editing = () => document.activeElement?.matches(".services-detail :is(textarea, select, input:not([type=checkbox]), .date-picker button)");
     if (!base || refreshing.current || inFlight.current || saving.current || dirty || conflict || comment || decision || decisionText || editing() || document.visibilityState !== "visible") return;
     refreshing.current = true;
     try {
@@ -204,6 +207,9 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
   }, [router]);
   async function submit() {
     if (!detail) return;
+    for (const input of dateFields.current?.querySelectorAll<HTMLInputElement>(".date-picker input[type=text]") ?? []) {
+      if (!input.reportValidity()) return;
+    }
     await run(async () => {
       const approvedHash = detail.profilePreview?.confirmationHash;
       await save();
@@ -284,8 +290,11 @@ export function ServiceRequestScreen({ id, path, student, ownerId }: { id: strin
     {detail.eligibility === "NOT_REQUIRED" && <p className="services-notice">Воинский учёт для вас не требуется</p>}{detail.eligibility === "UNKNOWN" && <p className="services-notice">Статус воинского учёта пока не подтверждён. Заявление рассмотрит уполномоченный сотрудник после проверки документов.</p>}{detail.status === "CLARIFICATION_REQUIRED" && <section className="services-notice"><h3>Требуется уточнение</h3><p className="services-text">{clarify?.text}</p><p>Поля: {detail.clarification?.fields.map(key => config.fields.find(f => f.key === key)?.label).join(", ") || "изменения не запрошены"}.</p><p>Документы: {detail.clarification?.slots.map(key => config.documents.find(d => d.key === key)?.label).join(", ") || "изменения не запрошены"}.</p></section>}
     <div className="services-detail-grid"><div>
       <section className="panel services-panel"><h3>{editable ? "Поля заявления" : "Поданные сведения"}</h3><p className="services-muted">{config.description}</p>
-        <fieldset disabled={busy} onBlur={() => { if (!inFlight.current) void save().catch(e => { setError(e.message); setConflict(e instanceof ServiceApiError && e.status === 409); }); }} className="services-fields">{config.fields.map(field => <label className={"services-field" + (fieldEditable(field.key) ? "" : " services-readonly")} key={field.key}>{field.label}{field.required && <span aria-label="обязательное поле"> *</span>}
-          {fieldEditable(field.key) ? field.type === "choice" ? <select value={inputs[field.key] ?? ""} onChange={e => change(field.key, e.target.value)}><option value="">Выберите вариант</option>{field.options?.map(value => <option key={value} value={value}>{optionLabel(value)}</option>)}</select> : field.type === "text" && config.code === "pass-reissue" && field.key === "reason" ? <><input list="pass-reissue-reasons" value={inputs[field.key] ?? ""} maxLength={field.max ?? 2000} onChange={e => change(field.key, e.target.value)} /><datalist id="pass-reissue-reasons"><option value="Утрата пропуска" /><option value="Повреждение пропуска" /><option value="Изменение персональных данных" /><option value="Обновление фотографии" /></datalist></> : field.type === "text" ? <textarea rows={field.key === "message" || field.key === "circumstances" ? 4 : 2} maxLength={field.max ?? 2000} value={inputs[field.key] ?? ""} onChange={e => change(field.key, e.target.value)} /> : <input type={field.type === "date" ? "date" : "number"} step={field.type === "money" ? "0.01" : "1"} min={field.type === "integer" ? 1 : field.type === "money" ? 0 : undefined} max={field.max} value={inputs[field.key] ?? ""} onChange={e => change(field.key, e.target.value)} /> : <span className="services-field-value services-text">{optionLabel(String(detail.fields[field.key] ?? "Не заполнено"))}</span>}
+        <fieldset ref={dateFields} disabled={busy} onBlur={() => { if (!inFlight.current) void save().catch(e => { setError(e.message); setConflict(e instanceof ServiceApiError && e.status === 409); }); }} className="services-fields">{config.fields.map(field => field.type === "date" && fieldEditable(field.key)
+          ? <DatePicker key={field.key} className="services-field" label={field.label} required={field.required}
+              value={inputs[field.key] ?? ""} onValueChange={value => change(field.key, value)} />
+          : <label className={"services-field" + (fieldEditable(field.key) ? "" : " services-readonly")} key={field.key}>{field.label}{field.required && <span aria-label="обязательное поле"> *</span>}
+          {fieldEditable(field.key) ? field.type === "choice" ? <select value={inputs[field.key] ?? ""} onChange={e => change(field.key, e.target.value)}><option value="">Выберите вариант</option>{field.options?.map(value => <option key={value} value={value}>{optionLabel(value)}</option>)}</select> : field.type === "text" && config.code === "pass-reissue" && field.key === "reason" ? <><input list="pass-reissue-reasons" value={inputs[field.key] ?? ""} maxLength={field.max ?? 2000} onChange={e => change(field.key, e.target.value)} /><datalist id="pass-reissue-reasons"><option value="Утрата пропуска" /><option value="Повреждение пропуска" /><option value="Изменение персональных данных" /><option value="Обновление фотографии" /></datalist></> : field.type === "text" ? <textarea rows={field.key === "message" || field.key === "circumstances" ? 4 : 2} maxLength={field.max ?? 2000} value={inputs[field.key] ?? ""} onChange={e => change(field.key, e.target.value)} /> : <input type="number" step={field.type === "money" ? "0.01" : "1"} min={field.type === "integer" ? 1 : field.type === "money" ? 0 : undefined} max={field.max} value={inputs[field.key] ?? ""} onChange={e => change(field.key, e.target.value)} /> : <span className="services-field-value services-text">{field.type === "date" && detail.fields[field.key] ? formatDateInput(String(detail.fields[field.key])) : optionLabel(String(detail.fields[field.key] ?? "Не заполнено"))}</span>}
           {fieldEditable(field.key) && <small>{field.required ? "Обязательно при отправке" : "Необязательно"}{field.max && field.type === "text" ? ` · до ${field.max} символов` : ""}</small>}
         </label>)}</fieldset>
         {editable && <p role="status" className="services-autosave">{saveState} · Автоматически в личном кабинете</p>}{editable && <button className="button button-secondary" disabled={busy} onClick={() => void run(async () => { await save(); setNotice("Черновик сохранён в личном кабинете."); })}>Сохранить изменения</button>}

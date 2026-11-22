@@ -14,18 +14,39 @@ export async function verifyStudentUI({browser,context,otherContext,pageFor,base
   const dto=await (await context.request.get(base+'/api/brs?planId='+planId)).json();
   const course=dto.overview.find(c=>c.id===planId),results=[];
   assert(course.calculation.modules.every(m=>m.complete));
-  for(const width of [320,360,390,1366]) {
-    const ctx=await browser.newContext({storageState:{...(await context.storageState()),origins:[]},viewport:{width,height:900},reducedMotion:'reduce',...(width<700?{isMobile:true,hasTouch:true}:{})});
+  for(const width of [320,346,360,390,1366]) {
+    const ctx=await browser.newContext({storageState:{...(await context.storageState()),origins:[]},viewport:{width,height:900},colorScheme:width===346?'dark':'light',reducedMotion:'reduce',...(width<700?{isMobile:true,hasTouch:true}:{})});
     try {
       const page=await pageFor(ctx,'/dashboard/grades?planId='+planId),mobile=width<700;
       const full=page.locator('.brs-student-full'),list=page.locator('.brs-course-list');
       await expect(page.locator(mobile?'.brs-compact':'.brs-full')).toBeVisible();
+      await expect(page.locator('html')).toHaveAttribute('data-theme',width===346?'dark':'light');
+      await expect(page.locator('.brs-progress-disclosure[open]')).toHaveCount(0);
       assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Page overflow at '+width);
       const period=await page.getByRole('combobox',{name:'Учебный период',exact:true}).inputValue();
       const moduleBadge=page.locator((mobile?'.brs-compact':'.brs-full')+' .brs-module-summary').first();
-      await expect(moduleBadge).toHaveAttribute('data-academic','complete');await expect(moduleBadge).toHaveAccessibleName(/Обязательные работы выполнены/);
+      await expect(moduleBadge).toHaveAttribute('data-academic','complete');
       let maxHeight;
       if(mobile) {
+        const summary=page.locator('.brs-course-list-section > summary').first();
+        const arrow=summary.locator('.brs-disclosure-arrow');
+        await expect(summary).toContainText(course.title);
+        await expect(summary).toContainText('Семестр:');
+        await expect(summary).toHaveAttribute('aria-expanded','false');
+        const closedArrow=await arrow.evaluate(el=>getComputedStyle(el).transform);
+        await summary.focus();
+        await page.keyboard.press('Enter');
+        await expect(summary).toHaveAttribute('aria-expanded','true');
+        assert.notEqual(await arrow.evaluate(el=>getComputedStyle(el).transform),closedArrow);
+        await expect(page.locator('.brs-progress-disclosure[open]')).toHaveCount(1);
+        await page.keyboard.press('Space');
+        await expect(summary).toHaveAttribute('aria-expanded','false');
+        await summary.tap();
+        await expect(list).toBeVisible();
+        await expect(moduleBadge).toHaveAccessibleName(/Обязательные работы выполнены/);
+        await page.getByRole('button',{name:'Обновить',exact:true}).click();
+        await expect(page.getByText('Данные обновлены.',{exact:true})).toBeVisible();
+        await expect(page.locator('.brs-progress-disclosure[open]')).toHaveCount(1);
         assert.equal(await list.count(),dto.overview.length);
         await expect(list.locator('thead th')).toHaveText(['Неделя','Работа','Результат']);
         assert.equal(await page.locator('.brs-list-event').count(),0);
@@ -45,6 +66,7 @@ export async function verifyStudentUI({browser,context,otherContext,pageFor,base
         await page.screenshot({path:resolve(root,'student-table-narrow-'+width+'.png')});
 
       } else {
+        await expect(moduleBadge).toHaveAccessibleName(/Обязательные работы выполнены/);
         const heights=await full.locator('tbody > tr').evaluateAll(rows=>rows.map(row=>row.getBoundingClientRect().height));maxHeight=Math.max(...heights);assert(maxHeight<=150,'Tall desktop course row '+maxHeight);
         const scroller=page.locator('.brs-full'),sticky=full.locator('tbody .brs-sticky').first();const initial=await sticky.boundingBox();assert(initial.width<=175);
         await scroller.evaluate(el=>el.scrollLeft=160);assert.equal(await scroller.evaluate(el=>el.scrollLeft),160);const moved=await sticky.boundingBox();assert(Math.abs(initial.x-moved.x)<=2,'Discipline column moved');await scroller.evaluate(el=>el.scrollLeft=0);
@@ -62,6 +84,7 @@ export async function verifyStudentUI({browser,context,otherContext,pageFor,base
       }
       await expect(page.getByRole('combobox',{name:'Учебный период',exact:true})).toHaveValue(period);
       await page.reload();await expect(page.locator(mobile?'.brs-full':'.brs-compact')).toBeVisible();
+      await expect(page.locator('.brs-progress-disclosure[open]')).toHaveCount(0);
       const attendance=page.getByRole('region',{name:'Посещаемость',exact:true});assert.equal(await attendance.getByRole('heading',{name:'Посещаемость',exact:true}).count(),1);
       await attendance.locator('summary').first().click();const own=attendance.locator('.brs-own-attendance');await expect(own).toBeVisible();assert.equal(await own.locator('thead th').filter({hasText:dto.selected.students[0].name}).count(),0);
       await own.getByRole('button').first().click();const hint=page.getByRole('dialog',{name:'Отметка занятия',exact:true});await expect(hint).toBeVisible();await expect(hint).toContainText('Присутствовал и работал');assert.equal(await hint.getByText('Посещаемость',{exact:true}).count(),0);assert(!(await hint.innerText()).includes('Остальные отметки'));

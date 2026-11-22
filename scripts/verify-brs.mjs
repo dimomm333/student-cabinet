@@ -21,12 +21,16 @@ import { verifyRefinementRules } from './brs-refinement-checks.mjs';
 import { prepareStudentUIFixture, verifyStudentUI } from './brs-student-ui-checks.mjs';
 import { verifyFinalRules } from './brs-final-checks.mjs';
 import { verifyFinalForms } from './brs-final-browser-checks.mjs';
+import { verifyStudentSession } from './brs-session-checks.mjs';
 import { points, workTitle } from '../src/lib/brs-rules.ts';
 
 mkdirSync('.local',{recursive:true});
 const root=mkdtempSync(resolve('.local/brs-test-')), source=createClient({url:getDatabaseUrl()}), before=await fingerprint(source);
 process.once('exit',code=>console.info('BRS verification process exit: '+code));
 const env=provisionTestDatabase(resolve(root,'test.db')); process.env.DATABASE_URL=env.DATABASE_URL;
+// The browser server and this process write concurrently to the isolated fixture.
+const fixtureJournal=createClient({url:env.DATABASE_URL});
+try { await fixtureJournal.execute('PRAGMA journal_mode = WAL'); } finally { fixtureJournal.close(); }
 const db=createPrismaClient(), results=[], errors=[], diagnostics=[]; let browser, child, logs='';
 const pass=(name,evidence={})=>{results.push({name,...evidence}); console.info('PASS: '+name);};
 const reject=async(fn,pattern)=>assert.rejects(fn,pattern);
@@ -206,10 +210,18 @@ try {
   const refinement=await verifyRefinementRules({db,teacher,dean,alex,maria,pass});
   const finalFixture=await verifyFinalRules({db,teacher,dean,alex,admin,staff,pass});
   await prepareStudentUIFixture(db,refinement.id);
+  await command(dean,exam.id,{operation:'EXAM_DATE',examOn:'2099-01-02',reason:'Порядок ближайших мероприятий'});
+  await command(dean,rex.id,{operation:'EXAM_DATE',examOn:'2099-01-01',reason:'Порядок ближайших мероприятий'});
+  await command(teacher,exam.id,{operation:'ATTEMPT',studentId:a.id,score:700,passed:false,heldOn:'2026-12-31',version:0,comment:'Закрытый комментарий к попытке'});
   // Browser and HTTP checks use a dedicated production server and random password.
-  const password=randomBytes(24).toString('base64url');await db.account.updateMany({where:{providerId:'credential'},data:{password:await hashPassword(password)}});
+  const password=randomBytes(24).toString('base64url'), passwordHash=await hashPassword(password);
+  await db.account.updateMany({where:{providerId:'credential'},data:{password:passwordHash}});
+  const emptyStudentId=randomUUID(), emptyStudent=await db.user.create({data:{
+    id:emptyStudentId,name:'Студент без учебных планов',email:'empty-brs-student@example.test',role:'STUDENT',
+    studentProfile:{create:{}},accounts:{create:{providerId:'credential',accountId:emptyStudentId,password:passwordHash}},
+  }});
   const portServer=createServer();await new Promise(r=>portServer.listen(0,'127.0.0.1',r));const port=portServer.address().port;await new Promise(r=>portServer.close(r));const base=`http://127.0.0.1:${port}`;
-  child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',String(port)],{windowsHide:true,detached:true,env:{...process.env,NODE_ENV:'production',BETTER_AUTH_URL:base,BETTER_AUTH_SECRET:randomBytes(48).toString('base64url'),AUTH_TRUST_PROXY:'false'},stdio:['ignore','pipe','pipe']});child.stdout.on('data',d=>logs+=d);child.stderr.on('data',d=>logs+=d);
+  child=spawn(process.execPath,['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',String(port)],{windowsHide:true,env:{...process.env,NODE_ENV:'production',BETTER_AUTH_URL:base,BETTER_AUTH_SECRET:randomBytes(48).toString('base64url'),AUTH_TRUST_PROXY:'false'},stdio:['ignore','pipe','pipe']});child.stdout.on('data',d=>logs+=d);child.stderr.on('data',d=>logs+=d);
   for(let i=0;i<80;i++){try{if((await fetch(base+'/api/auth/get-session')).ok)break;}catch{}await new Promise(r=>setTimeout(r,200));}
   browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL??'chrome',headless:true});
   const contexts={};for(const u of [t,d,a,m,admin,staff]){const ctx=await browser.newContext({viewport:{width:1360,height:900},reducedMotion: "reduce"});assert.equal((await ctx.request.post(base+'/api/auth/sign-in/email',{headers:{Origin:base},data:{email:u.email,password}})).status(),200);contexts[u.email]=ctx;}
@@ -218,7 +230,7 @@ try {
   const expiringSession=(await (await expiring.request.get(base+'/api/auth/get-session')).json()).session;
   const cookie=(await expiring.cookies()).map(item=>item.name+'='+item.value).join('; ');
   const streamCommand=JSON.stringify({operation:'ATTEMPT',requestId:randomUUID(),planId:exam.id,revision:(await full(exam.id)).revision,studentId:a.id,version:0,score:1500,passed:true,heldOn:'2026-12-30'});
-  let upload;const slowResponse=new Promise((resolve,reject)=>{upload=httpRequest(base+'/api/brs',{method:'POST',headers:{Origin:base,'Content-Type':'application/json',Cookie:cookie}},response=>{response.resume();response.on('end',()=>resolve(response.statusCode));});upload.on('error',reject);upload.write(streamCommand.slice(0,30));});
+  let upload;const slowResponse=new Promise((resolve,reject)=>{upload=httpRequest(base+'/api/brs',{method:'POST',signal:AbortSignal.timeout(15000),headers:{Origin:base,'Content-Type':'application/json',Cookie:cookie}},response=>{response.resume();response.on('end',()=>resolve(response.statusCode));response.on('error',reject);});upload.on('error',reject);upload.write(streamCommand.slice(0,30));});
   await db.session.update({where:{id:expiringSession.id},data:{createdAt:new Date(Date.now()-9*3600000),expiresAt:new Date(Date.now()+3600000)}});upload.end(streamCommand.slice(30));assert.equal(await slowResponse,401);await expiring.close();
   const anonymous=await browser.newContext();assert.equal((await anonymous.request.get(base+'/api/brs')).status(),401);await anonymous.close();
   for(const u of [admin,staff])assert.equal((await contexts[u.email].request.get(base+'/api/brs')).status(),403);
@@ -245,7 +257,10 @@ try {
   await dp.getByLabel('Основание / причина изменения').fill('Академические условия проверены через форму деканата');
   await dp.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(dp.getByRole('dialog')).not.toBeVisible();await expect(admissionCard).toContainText('Допущен');
   const liveGrades=await (await ac.request.get(base+'/api/brs?planId='+exam.id)).json();
-  const sessionPage=await pageFor(ac,'/dashboard/session?planId='+exam.id);await expect(sessionPage.locator('main')).toContainText('Допущен');
+  const sessionPage=await pageFor(ac,'/dashboard/session?planId='+exam.id);
+  const examSessionCard=sessionPage.locator(`.brs-session-course[data-plan="${exam.id}"]`);
+  await examSessionCard.locator('summary').click();
+  await expect(examSessionCard.locator('.brs-admission strong')).toHaveText('Допущен');
   assert.equal(liveGrades.selected.students[0].calculation.admissionStatus,'Допущен');
   await admissionCard.getByRole('button',{name:'Отозвать допуск',exact:true}).click();await dp.getByLabel('Основание / причина изменения').fill('Проверка отзыва через настоящую форму');await dp.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(dp.getByRole('dialog')).not.toBeVisible();await expect(admissionCard).toContainText('Ожидает подтверждения деканата');
   async function brsNavigate(page,name,title){const tabs=page.locator('.brs-workspace:visible .brs-tabs');await (await tabs.count()?tabs:page.locator('.desktop-sidebar')).getByRole('link',{name,exact:true}).click();await expect(page.locator('main h1:visible')).toHaveText(title);}
@@ -316,9 +331,13 @@ try {
   await refined.getByRole('button',{name:new RegExp(a.name+', ДЗ1,')}).click();await refined.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await refined.getByLabel('Первичные баллы',{exact:true}).fill('36');await refined.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(refined.getByRole('dialog')).not.toBeVisible();
   const liveResult=(await calculateStudent(db,await full(refinement.id),a.id)).calculation;
   await brsNavigate(refinedDean,'Допуски','Допуски и сессия');await expect(refinedDean.locator('.brs-workspace:visible [data-student="'+a.id+'"]')).toContainText('Ожидает подтверждения деканата');
-  await brsNavigate(refinedStudent,'Сессия','Сессия');await expect(refinedStudent.locator('.brs-workspace:visible [data-student="'+a.id+'"] .brs-facts dd').nth(1)).toHaveText(points(liveResult.total)+' / 100');await expect(refinedStudent.locator('.brs-workspace:visible [data-student="'+a.id+'"]')).toContainText('Ожидает подтверждения деканата');
+  const refinedStudentCard=refinedStudent.locator(`.brs-workspace:visible .brs-session-course[data-plan="${refinement.id}"]`);
+  await brsNavigate(refinedStudent,'Сессия','Сессия');await refinedStudentCard.locator('summary').click();
+  await expect(refinedStudentCard.locator('dl > div').filter({hasText:'Накопленный рейтинг'}).locator('dd')).toHaveText(points(liveResult.total)+' / 100');
+  await expect(refinedStudentCard.locator('.brs-admission strong')).toHaveText('Ожидает подтверждения деканата');
   await refinedDean.locator('.brs-workspace:visible [data-student="'+a.id+'"]').getByRole('button',{name:'Подтвердить допуск',exact:true}).click();await refinedDean.getByLabel('Основание / причина изменения',{exact:true}).fill('Актуальные основания проверены при переходе без F5');await refinedDean.getByRole('button',{name:'Сохранить',exact:true}).click();await expect(refinedDean.getByRole('dialog')).not.toBeVisible();
-  await brsNavigate(refinedStudent,'Успеваемость','Успеваемость');await brsNavigate(refinedStudent,'Сессия','Сессия');await expect(refinedStudent.locator('.brs-workspace:visible [data-student="'+a.id+'"]')).toContainText('Допущен');
+  await brsNavigate(refinedStudent,'Успеваемость','Успеваемость');await brsNavigate(refinedStudent,'Сессия','Сессия');await refinedStudentCard.locator('summary').click();
+  await expect(refinedStudentCard.locator('.brs-admission strong')).toHaveText('Допущен');
   await brsNavigate(refined,'Сессия','Сессия');await expect(refined.locator('.brs-workspace:visible [data-student="'+a.id+'"]').getByRole('button',{name:'Добавить попытку',exact:true})).toBeEnabled();
   await refinedStudent.screenshot({path:resolve(root,'refined-student-desktop.png'),fullPage:true});
   await refined.screenshot({path:resolve(root,'refined-session-desktop.png'),fullPage:true});
@@ -351,6 +370,71 @@ try {
   }
   await verifyStudentUI({browser,context:ac,otherContext:mc,pageFor,base,db,planId:refinement.id,root,pass});
   await verifyFinalForms({browser,tc,ac,pageFor,base,fixture:finalFixture,examPlanId:refinement.id,root,pass});
+  const negativePlan=await full(finalFixture.id);
+  for(const event of negativePlan.modules.flatMap(module=>module.events)){
+    if(event.kind==='SEMINAR'){
+      const attendance=await db.brsAttendance.findUniqueOrThrow({where:{occurrenceId_studentId:{occurrenceId:event.occurrenceId,studentId:a.id}}});
+      await command(teacher,negativePlan.id,{operation:'ATTENDANCE',studentId:a.id,occurrenceId:event.occurrenceId,version:attendance.version,mark:'PRESENT'});
+    }else{
+      const previous=await db.brsResult.findUniqueOrThrow({where:{eventId_studentId:{eventId:event.id,studentId:a.id}}});
+      await command(teacher,negativePlan.id,{operation:'RESULT',studentId:a.id,eventId:event.id,version:previous.version,scoringMode:'RATING',score:Math.ceil(event.maxScore/2),submissionTiming:'ON_TIME',
+        ...(event.kind==='LAB'?{labStatus:'DEFENDED',performedOn:previous.performedOn.toISOString().slice(0,10),defendedOn:previous.defendedOn.toISOString().slice(0,10)}:{})});
+    }
+  }
+  const previousFinal=await db.brsFinal.findUniqueOrThrow({where:{planId_studentId:{planId:negativePlan.id,studentId:a.id}}});
+  await command(teacher,negativePlan.id,{operation:'FINALIZE',studentId:a.id,version:previousFinal.version});
+  await verifyStudentSession({browser,ac,mc,pageFor,base,exam,credit,rex,diff,negativePlan,emptyStudent,password,root,pass});
+  const examDates = await pageFor(dc, '/deanery/session?planId=' + exam.id);
+  const examTrigger = examDates.getByRole('button', { name: 'Назначить дату экзамена', exact: true });
+  const examInput = examDates.getByLabel('Назначенная дата (можно оставить пустой)', { exact: true });
+  await examTrigger.click();
+  await expect(examInput).toHaveValue('02.01.2099');
+  await examInput.press('ArrowDown');
+  await examDates.getByRole('button', { name: 'Очистить', exact: true }).click();
+  await examDates.getByLabel('Основание / причина изменения').fill('Проверка очистки даты экзамена');
+  await examDates.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(examDates.locator('.brs-dialog')).toBeHidden();
+  assert.equal((await full(exam.id)).examOn, null);
+  await examTrigger.click();
+  await expect(examInput).toHaveValue('');
+  await examInput.fill('29.02.2028');
+  await examDates.getByLabel('Основание / причина изменения').fill('Проверка сохранения високосной даты');
+  await examDates.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(examDates.locator('.brs-dialog')).toBeHidden();
+  assert.equal((await full(exam.id)).examOn.toISOString().slice(0, 10), '2028-02-29');
+  await examDates.reload();
+  await examTrigger.click();
+  await expect(examInput).toHaveValue('29.02.2028');
+  await examDates.close();
+  pass('Deanery session: optional exam date clears, saves leap day and reopens without shifting');
+  const originalPublication = (await full(diff.id)).publishedAt;
+  await db.brsPlan.update({ where: { id: diff.id }, data: { publishedAt: null } });
+  try {
+    const editor = await pageFor(dc, '/deanery/brs?planId=' + diff.id);
+    const row = editor.locator('tr').filter({ has: editor.getByRole('cell', { name: workTitle(draftHW), exact: true }) }).first();
+    const openWork = row.getByRole('button', { name: 'Настроить', exact: true });
+    await openWork.click();
+    const work = editor.locator('.brs-dialog');
+    for (const [name, label] of [['plannedOn', 'Дата мероприятия'], ['issuedOn', 'Дата выдачи ДЗ'], ['deadline', 'Дедлайн ДЗ']]) {
+      const iso = draftHW[name].toISOString().slice(0, 10);
+      const text = iso.split('-').reverse().join('.');
+      const input = work.getByLabel(label, { exact: true });
+      await expect(input).toHaveValue(text);
+      await input.fill('');
+      await input.fill(text);
+      await input.press('ArrowDown');
+      await work.locator(`[data-date="${iso}"]`).click();
+      await expect(work.locator(`input[name=${name}]`)).toHaveValue(iso);
+    }
+    await work.getByRole('button', { name: 'Сохранить', exact: true }).click();
+    await expect(work).toBeHidden();
+    const workDates = await db.brsEvent.findUniqueOrThrow({ where: { id: draftHW.id } });
+    for (const name of ['plannedOn', 'issuedOn', 'deadline']) assert.equal(workDates[name].toISOString(), draftHW[name].toISOString());
+    await editor.close();
+  } finally {
+    await db.brsPlan.update({ where: { id: diff.id }, data: { publishedAt: originalPublication } });
+  }
+  pass('Deanery plans: event, issue and deadline dates use the calendar and retain their values on save');
   assert.equal(errors.length,0,JSON.stringify(errors));assert.equal(diagnostics.length,0,JSON.stringify(diagnostics));
   pass('HTTP guards and real browser scoring, privacy, deletion, shared session state and 360px modes');
   const publicAPI=await fetch(base+'/api/v1/schedule?group=pi-24-1&week=2026-11-09');const publicText=await publicAPI.text();assert(!publicText.includes('Сквозной комментарий'));assert(!publicText.includes('BrsResult'));

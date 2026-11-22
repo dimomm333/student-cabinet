@@ -77,7 +77,7 @@ function HousingPlacement({ placement }: { placement: Placement }) {
       <Action action="RESERVE_CANCEL" fields={{ id }}><Field name="reason" label="Причина отмены" /></Action>
     </details>}
     {placement.status === "ACTIVE" && <details><summary>Выезд и выданное имущество</summary>
-      {!departure && <Action action="DEPART" fields={{ id }}><Field name="plannedOn" label="Дата выезда" type="date" /><Field name="reason" label="Основание" /></Action>}
+      {!departure && <Action action="DEPART" fields={{ id }}><Field name="plannedOn" label="Дата выезда" type="date" fromToday /><Field name="reason" label="Основание" /></Action>}
       {departure && <>
         <p>{dayLabel(departure.plannedOn)} · {departure.reason}{departure.inspectedAt && " · Комната проверена"}</p>
         {departure.notes && <p>{departure.notes}</p>}
@@ -113,7 +113,7 @@ function Housing({ data, bedPager }: { data: Data; bedPager: React.ReactNode }) 
         <Pick name="requestId" label="Заявление" items={rows(data.approved).map(r => [r.id, `${r.owner.name} · ${r.serviceCode === "dorm-transfer" ? "переселение" : "заселение"}`])} />
         <Pick name="bedId" label="Свободное место" items={beds} />
         <Field name="hours" label="Срок резерва, часов" type="number" min={1} max={720} initial={72} />
-        <Field name="endsOn" label="Проживание до" type="date" optional />
+        <Field name="endsOn" label="Проживание до" type="date" fromToday optional />
       </Action> : !beds.length ? <p>Свободных мест на этой странице нет.</p> : null}
     </Card>
     <Card title="Резервы и проживающие">
@@ -124,7 +124,7 @@ function Housing({ data, bedPager }: { data: Data; bedPager: React.ReactNode }) 
       {data.legacy?.length ? <ul>{rows(data.legacy).map(student => <li key={student.id}>{student.name} · {student.studentProfile?.dormitory}, {student.studentProfile?.dormitoryRoom}
         {beds.length > 0 && <Action action="LEGACY_MATCH" fields={{ studentId: student.id }}>
           <Pick name="bedId" label="Проверенное место" items={beds} /><Field name="basis" label="Документ или основание проверки" />
-          <Field name="endsOn" label="Проживание до" type="date" optional />
+          <Field name="endsOn" label="Проживание до" type="date" fromToday optional />
         </Action>}
       </li>)}</ul> : null}
     </Card>

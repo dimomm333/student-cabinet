@@ -112,6 +112,9 @@ export function conditions(events: CalcEvent[], today?: string) {
   const problems = events.filter(event => event.required && completion(event) !== "MET").map(event => workCondition(event, today));
   return { state: problems.some(p => p.category === "DEBT") ? "FAILED" : problems.length ? "PENDING" : "MET", problems };
 }
+export function distributedAttemptPassed(score: number, maxScore: number) {
+  return score * 2 >= maxScore;
+}
 export function calculateBrs(control: Control, modules: CalcModule[], attempts: { id: string; score: number; passed: boolean; deleted: boolean }[], admission?: { approved: boolean; reason: string } | null, today?: string) {
   modules = numberControlModules(modules);
   const events = modules.flatMap(module => module.events);
@@ -127,7 +130,7 @@ export function calculateBrs(control: Control, modules: CalcModule[], attempts: 
   const replacement = control === "DISTRIBUTED" && compare(originalExact, fraction(bestAttempt?.score ?? 0)) > 0 ? originalExact : fraction(bestAttempt?.score ?? 0);
   const semesterScore = sum(events);
   const total = control === "EXAM" ? add(semesterScore, fraction(bestAttempt?.score ?? 0)) : control === "DISTRIBUTED" ? add(subtract(semesterScore, originalExact), replacement) : semesterScore;
-  const effectiveFinalPassed = control === "DISTRIBUTED" && finalEvent ? completion(finalEvent) === "MET" || activeAttempts.some(attempt => attempt.score * 2 >= finalEvent.maxScore) : true;
+  const effectiveFinalPassed = control === "DISTRIBUTED" && finalEvent ? completion(finalEvent) === "MET" || activeAttempts.some(attempt => distributedAttemptPassed(attempt.score, finalEvent.maxScore)) : true;
   const remaining = events.filter(event => event.required && completion(event) !== "MET" && !(control === "DISTRIBUTED" && event.id === finalEvent?.id && effectiveFinalPassed));
   const missing = events.filter(event => !event.result || event.result.deleted || event.result.score === null).filter(event => !(control === "DISTRIBUTED" && event.id === finalEvent?.id && bestAttempt));
   const ready = !missing.length && !remaining.length && (control !== "EXAM" || !!bestAttempt) && effectiveFinalPassed;

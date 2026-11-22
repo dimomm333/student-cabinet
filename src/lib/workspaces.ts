@@ -22,6 +22,7 @@ export const workspaces: Record<WorkspaceRole, { title: string; description: str
       { slug: "admissions", title: "Допуски", icon: "check", description: "Подтверждение и отзыв допуска к обычным экзаменам." },
       { slug: "session", title: "Сессия", icon: "calendar", description: "Экзаменационные попытки, итоги и задолженности." },
       { slug: "requests", title: "Заявки и заявления", icon: "clipboard", description: "Очередь заявлений, уточнения, документы и решения в пределах полномочий." },
+      { slug: "portfolio", title: "Проверка достижений", icon: "briefcase", description: "Достижения из портфолио студентов назначенных подразделений." },
       clearanceSection,
       notificationsSection,
       profileSection,

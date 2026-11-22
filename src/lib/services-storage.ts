@@ -57,7 +57,9 @@ export function localServiceStorage(root = process.env.SERVICES_STORAGE_DIR ?? "
 }
 // A strict initial allowlist: scanned documents/photos. Decode and re-encode,
 // stripping metadata and any trailing executable/polyglot content.
-export async function prepareServiceFile(bytes: Buffer, filename: string, mime: string, photoOnly = false) {
+export async function prepareServiceFile(bytes: Buffer, filename: string, mime: string, mode: boolean | "portfolio" = false) {
+  const photoOnly = mode === true;
+  const allowWebp = photoOnly || mode === "portfolio";
   if (/\.pdf$/i.test(filename) || mime === "application/pdf" || bytes.subarray(0, 5).toString() === "%PDF-") {
     if (photoOnly) throw new ServiceError("Приложите фотографию JPEG, PNG или WebP.", 415);
     if (!bytes.length || bytes.length > MAX_SERVICE_PDF) throw new ServiceError("PDF — от 1 байта до 20 МиБ.", 413);
@@ -68,10 +70,10 @@ export async function prepareServiceFile(bytes: Buffer, filename: string, mime: 
   }
   if (!bytes.length || bytes.length > MAX_SERVICE_FILE) throw new ServiceError("Размер файла: от 1 байта до 8 МиБ.", 413);
   validateFilename(filename);
-  if (!(photoOnly ? /\.(png|jpe?g|webp)$/iu : /\.(png|jpe?g)$/iu).test(filename)) throw new ServiceError(photoOnly ? "Допустимы фотографии JPEG, PNG и WebP." : "Допустимы имена PNG/JPEG без путей.");
+  if (!(allowWebp ? /\.(png|jpe?g|webp)$/iu : /\.(png|jpe?g)$/iu).test(filename)) throw new ServiceError(allowWebp ? "Допустимы фотографии JPEG, PNG и WebP." : "Допустимы имена PNG/JPEG без путей.");
   const png = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   const jpeg = bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
-  const webp = photoOnly && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  const webp = allowWebp && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
   const format = png ? "png" : jpeg ? "jpeg" : webp ? "webp" : null;
   const extension = format === "jpeg" ? /\.jpe?g$/i : format === "png" ? /\.png$/i : /\.webp$/i;
   if (!format || mime !== `image/${format}` || !extension.test(filename)) throw new ServiceError("Тип файла не совпадает с содержимым.");
@@ -90,7 +92,8 @@ export async function prepareServiceFile(bytes: Buffer, filename: string, mime: 
     throw new ServiceError("Изображение повреждено или содержит неподдерживаемую структуру.");
   }
   if (content.length > MAX_SERVICE_FILE) throw new ServiceError("Изображение после безопасного преобразования превышает 8 МиБ.", 413);
-  return { bytes: content, key: randomUUID(), name: format === "png" ? filename.replace(/\.png$/i, ".png") : filename, mime: `image/${format}`, size: content.length, sha256: digest(content) };
+  const name = format === "png" && mode !== "portfolio" ? filename.replace(/\.png$/i, ".png") : filename;
+  return { bytes: content, key: randomUUID(), name, mime: `image/${format}`, size: content.length, sha256: digest(content) };
 }
 function validateFilename(filename: string) {
   if (!filename || filename.length > 255) throw new ServiceError("Имя файла должно содержать от 1 до 255 символов. Сократите имя файла.");

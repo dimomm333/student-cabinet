@@ -2,15 +2,21 @@ import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 import { DormForm } from "./dormitory-form";
+import { DatePicker } from "./date-picker";
+import { dormCalendarDay } from "@/lib/dormitory-state";
+import { isoDate } from "@/lib/schedule-calendar";
 import { documentKinds } from "@/lib/dormitory-shared";
 
 export function Action(props: Omit<ComponentProps<typeof DormForm>, "requestKey">) { return <DormForm {...props} requestKey={randomUUID()} />; }
 export function Card({ id, title, children }: { id?: string; title: string; children: ReactNode }) {
   return <section id={id} className="panel dorm-card"><h2>{title}</h2>{children}</section>;
 }
-export function Field({ label, name, type = "text", optional = false, initial, max, min, inputMode }: {
-  label: string; name: string; type?: string; optional?: boolean; initial?: string | number; max?: number; min?: number; inputMode?: "decimal";
+export function Field({ label, name, type = "text", optional = false, initial, max, min, inputMode, fromToday }: {
+  label: string; name: string; type?: string; optional?: boolean; initial?: string | number; max?: number; min?: number; inputMode?: "decimal"; fromToday?: boolean;
 }) {
+  if (type === "date") return <DatePicker className="dorm-date-field" label={label} name={name}
+    min={fromToday ? isoDate(dormCalendarDay(new Date())) : undefined}
+    required={!optional} defaultValue={typeof initial === "string" ? initial : undefined} />;
   return <label>{label}<input name={name} type={type} inputMode={inputMode} defaultValue={initial} required={!optional} maxLength={type === "text" ? max ?? 500 : undefined} max={max} min={min} /></label>;
 }
 export function TextArea({ label, name, optional = false, max = 2000 }: { label: string; name: string; optional?: boolean; max?: number }) {

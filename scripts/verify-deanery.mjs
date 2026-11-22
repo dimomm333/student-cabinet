@@ -83,8 +83,8 @@ try {
   const browserContext=await browser.newContext({viewport:{width:1280,height:900}});
   const page=await browserContext.newPage();page.on('pageerror',error=>errors.push(error.message));
   await page.goto(base+'/login');
-  await page.getByLabel(/email/i).fill(dean.email);await page.getByLabel('Пароль',{exact:true}).fill(password);
-  await page.getByRole('button',{name:'Войти в кабинет',exact:true}).click();await page.waitForURL(base+'/deanery');
+  await page.getByLabel('Университетская почта', { exact: true }).fill(dean.email);await page.getByLabel('Пароль',{exact:true}).fill(password);
+  await page.locator('.login-form button[type=submit]').click();await page.waitForURL(base+'/deanery');
   await expect(page.locator('main h1:visible')).toHaveText('Рабочая панель деканата');
   await page.goto(base+'/deanery/students');
   await expect(page.locator('.deanery-list:visible')).toContainText(student.email);

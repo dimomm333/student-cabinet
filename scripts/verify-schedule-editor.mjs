@@ -12,6 +12,7 @@ import { getDatabaseUrl } from '../src/lib/database-url.ts';
 import { executeScheduleCommand, ScheduleEditError, getScheduleEditor } from '../src/lib/schedule-editor-repository.ts';
 import { getPublicScheduleData, getPersonalScheduleData } from '../src/lib/schedule-repository.ts';
 import { parseScheduleQuery } from '../src/lib/schedule-calendar.ts';
+import { verifyTouchCalendar } from './calendar-touch-checks.mjs';
 import { DeaneryAccessDenied } from '../src/lib/deanery-repository.ts';
 
 mkdirSync('.local',{recursive:true});const root=mkdtempSync(resolve('.local/schedule-editor-test-'));
@@ -119,7 +120,7 @@ try{
   browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL??'chrome',headless:true});
   const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'});const page=await context.newPage();
   page.on('pageerror',e=>errors.push(e.message));page.on('console',message=>{if(/Blocking Route|Instant validation|Next.js encountered/.test(message.text()))warnings.push(message.text());});
-  await page.goto(baseUrl+'/login');await page.getByLabel(/email/i).fill(dean.email);await page.getByLabel('Пароль',{exact:true}).fill(password);await page.getByRole('button',{name:'Войти в кабинет',exact:true}).click();await page.waitForURL(baseUrl+'/deanery');
+  await page.goto(baseUrl+'/login');await page.getByLabel('Университетская почта', { exact: true }).fill(dean.email);await page.getByLabel('Пароль',{exact:true}).fill(password);await page.locator('.login-form button[type=submit]').click();await page.waitForURL(baseUrl+'/deanery');
   const editorUrl=baseUrl+'/deanery/schedule?group='+group.slug+'&week=2026-11-09';await page.goto(editorUrl);
   const dialog=page.getByRole('dialog',{name:'Редактор занятия'});
   const addTrigger=page.getByRole('button',{name:'Добавить регулярную пару',exact:true});
@@ -166,6 +167,69 @@ try{
   uiPair=page.locator('.editor-pair').filter({has:page.locator('.schedule-cancelled')});await uiPair.getByRole('button',{name:'Восстановить исходное занятие',exact:true}).click();await submit(page,true);data=await(await api()).json();assert(!data.data.days[1].lessons[0].change);
   await page.screenshot({path:resolve(root,'desktop-editor.png'),fullPage:true});
   const mobile=await browser.newContext({storageState:await context.storageState(),viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'reduce'});const phone=await mobile.newPage();phone.on('pageerror',e=>errors.push(e.message));await phone.goto(editorUrl);
+  await phone.getByRole('button',{name:'Добавить разовую пару',exact:true}).tap();
+  const dateDialog = phone.getByRole('dialog', { name: 'Редактор занятия' });
+  const dateInput = dateDialog.getByLabel('Дата разового занятия', { exact: true });
+  const calendar = dateDialog.locator('.schedule-calendar');
+  const trigger = dateDialog.getByRole('button', { name: 'Открыть календарь' });
+  for (const height of [640, 250]) {
+    await phone.setViewportSize({ width: 360, height });
+    await verifyTouchCalendar(phone, dateDialog.locator('.date-picker'), { short: height === 250 });
+    await expect(dateDialog).toBeVisible();
+  }
+  for (const theme of ['light', 'dark']) for (const width of [346, 360, 390, 768, 1366]) {
+    await phone.setViewportSize({ width, height: 844 });
+    await phone.locator('html').evaluate((html, value) => html.setAttribute('data-theme', value), theme);
+    await trigger.click();
+    await expect(calendar).toBeVisible();
+    assert(await calendar.evaluate(element => {
+      const box = element.getBoundingClientRect();
+      return element.matches(':popover-open') && box.left >= 0 && box.top >= 0
+        && box.right <= innerWidth && box.bottom <= innerHeight
+        && element.scrollWidth <= element.clientWidth && document.documentElement.scrollWidth <= innerWidth;
+    }), `Calendar overflow in ${theme} at ${width}px`);
+    assert.equal(await calendar.evaluate(element => getComputedStyle(element, '::backdrop').backgroundColor), 'rgba(0, 0, 0, 0)');
+    if (width === 346 || width === 1366) await phone.screenshot({ path: resolve(root, `date-picker-${theme}-${width}.png`) });
+    await phone.keyboard.press('Escape');
+    await expect(calendar).toBeHidden();
+    await expect(dateDialog).toBeVisible();
+    await expect(dateInput).toBeFocused();
+  }
+  await phone.setViewportSize({ width: 390, height: 844 });
+  for (const invalid of ['', '29.02.2027', '31.12.1999', '01.01.2100']) {
+    await dateInput.fill(invalid);
+    await dateInput.press('Enter');
+    await expect(dateInput).toHaveAttribute('aria-invalid', 'true');
+    await expect(dateDialog.locator('input[name=date]')).toHaveValue('');
+  }
+  await dateInput.fill('01.01.2000');
+  await trigger.click();
+  await expect(calendar.locator('[data-date="1999-12-31"]')).toBeDisabled();
+  await expect(calendar.getByRole('button', { name: 'Предыдущий месяц' })).toBeDisabled();
+  await calendar.getByRole('button', { name: 'Следующий год' }).click();
+  await expect(calendar.locator('strong')).toContainText('январь 2001');
+  await phone.keyboard.press('Escape');
+  await dateInput.fill('30.11.2099');
+  await trigger.click();
+  await calendar.getByRole('button', { name: 'Следующий месяц' }).tap();
+  await expect(calendar.locator('strong')).toContainText('декабрь 2099');
+  await expect(calendar.locator('[data-date="2100-01-01"]')).toBeDisabled();
+  await expect(calendar.getByRole('button', { name: 'Следующий месяц' })).toBeDisabled();
+  await phone.keyboard.press('Escape');
+  await dateInput.fill('29.02.2028');
+  await trigger.click();
+  await calendar.locator('[data-date="2028-02-29"]').click();
+  await expect(dateDialog.locator('input[name=date]')).toHaveValue('29.02.2028');
+  await trigger.click();
+  await calendar.getByRole('button', { name: 'Сегодня', exact: true }).click();
+  const academicToday = new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', dateStyle: 'short' }).format(new Date());
+  await expect(dateInput).toHaveValue(academicToday);
+  await trigger.click();
+  await expect(calendar.locator('[aria-current=date]')).toHaveAttribute('aria-pressed', 'true');
+  await phone.keyboard.press('Escape');
+  await phone.keyboard.press('Escape');
+  await expect(dateDialog).toBeHidden();
+  pass('Date picker in a modal: keyboard, leap date, year controls, calendar bounds and both themes at 346/360/390/768/1366px');
   await phone.getByRole('button',{name:'Добавить разовую пару',exact:true}).tap();await fillRegular(phone,otherTeacher.publicName);const phoneDialog=phone.getByRole('dialog',{name:'Редактор занятия'});await phoneDialog.getByLabel('Дата разового занятия',{exact:true}).fill('11.11.2026');await phoneDialog.getByLabel('Начало',{exact:true}).fill('16:00');await phoneDialog.getByLabel('Окончание',{exact:true}).fill('17:00');await phoneDialog.locator('select[id$="-mode"]').selectOption('standard');await phoneDialog.locator('select[id$="-pair"]').selectOption('5');await expect(phoneDialog.locator('input[name=start]')).toHaveValue('15:55');await phone.screenshot({path:resolve(root,'mobile-form.png'),fullPage:true});await submit(phone);
   await expect(phone.locator('.schedule-change-label',{hasText:'Дополнительная пара'})).toBeVisible();assert(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   await expect(phone.locator('.public-lesson-tags').filter({hasText:'5-'})).toHaveCount(1);

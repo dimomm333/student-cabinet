@@ -28,6 +28,7 @@ import { executeClearanceCommand, clearanceDetail } from '../src/lib/clearance-r
 import { configureClearance, fixtureActor } from './clearance-fixture.mjs';
 import { fingerprint, integrity } from './database-snapshot.mjs';
 import { provisionTestDatabase } from './test-fixtures.mjs';
+import { verifyTouchCalendar } from './calendar-touch-checks.mjs';
 
 const demo = process.argv.includes('--demo'), browserMode = process.argv.includes('--browser');
 mkdirSync('.local', { recursive: true });
@@ -44,6 +45,7 @@ if (browserMode) {
 const db = createPrismaClient();
 const storage = resolve(root, 'files');
 const day = add => new Date(Date.now() + add * 86400000).toISOString().slice(0, 10);
+const dateText = value => value.split('-').reverse().join('.');
 const run = (actor, action, fields = {}, key = randomUUID()) => executeDormCommand(db, actor, { action, key, fields });
 const service = (actor, operation, data) => executeServiceCommand(db, actor, { operation, requestId: randomUUID(), ...data });
 const results = [];
@@ -248,12 +250,25 @@ try {
       await create.getByLabel('Запись проживания').selectOption(placement);
       await create.getByLabel('Основание').fill('Проверка ввода в рублях');
       await create.getByLabel('Сумма, ₽').fill('10,50');
-      await create.getByLabel('Начало периода').fill(day(0));
-      await create.getByLabel('Конец периода').fill(day(30));
-      await create.getByLabel('Оплатить до').fill(day(4));
+      const from = create.getByLabel('Начало периода');
+      await from.fill(dateText(day(0)));
+      await from.press('ArrowDown');
+      await create.locator(`[data-date="${day(0)}"]`).click();
+      await create.getByLabel('Конец периода').fill(dateText(day(30)));
+      await create.getByLabel('Оплатить до').fill(dateText(day(4)));
       await create.getByRole('button', { name: 'Создать начисление' }).click();
       const record = financePage.locator('article').filter({ hasText: 'Проверка ввода в рублях' });
       await expect(record).toContainText('Остаток 10,50 ₽');
+      const savedCharge = await db.dormCharge.findFirstOrThrow({ where: { basis: 'Проверка ввода в рублях' } });
+      assert.deepEqual([savedCharge.periodFrom, savedCharge.periodTo, savedCharge.dueOn].map(date => date.toISOString().slice(0, 10)), [day(0), day(30), day(4)]);
+      const phone = await browser.newContext({ storageState: await financePage.context().storageState(),
+        viewport: { width: 360, height: 640 }, isMobile: true, hasTouch: true });
+      try {
+        const financeMobile = await phone.newPage();
+        await financeMobile.goto(financePage.url());
+        const paymentDue = financeMobile.locator('.date-picker').filter({ has: financeMobile.getByLabel('Оплатить до', { exact: true }) });
+        await verifyTouchCalendar(financeMobile, paymentDue);
+      } finally { await phone.close(); }
       await record.getByText('Подтвердить оплату или внести корректировку').click();
       await record.getByLabel('Вид операции').selectOption('PAYMENT');
       await record.getByLabel('Сумма, ₽').fill('10.50');
@@ -318,9 +333,15 @@ try {
       const chosen = employeeRepairs.locator('#repair-' + repair.id);
       await chosen.getByText('История и действия', { exact: true }).click();
       await chosen.getByLabel('Исполнитель').selectOption(tech.id);
-      await chosen.getByLabel('Срок выполнения').fill(day(2));
+      const due = chosen.getByLabel('Срок выполнения');
+      await due.fill(dateText(day(3)));
+      await due.press('ArrowDown');
+      await chosen.getByRole('button', { name: 'Очистить', exact: true }).click();
+      await expect(due).toHaveValue('');
+      await due.fill(dateText(day(2)));
       await chosen.getByRole('button', { name: 'Назначить исполнителя' }).click();
       await expect(chosen.getByRole('heading')).toContainText('Назначен исполнитель');
+      assert.equal((await getRepair()).dueOn.toISOString().slice(0, 10), day(2));
     } else await transition(admin, 'ASSIGNED', { assigneeId: tech.id, dueOn: day(2) });
     assert.equal(await db.dormRepair.count({ where: dormRepairScope(tech) }), 1);
     if (contexts) {
@@ -392,6 +413,20 @@ try {
     const moving = await Promise.allSettled([reserve(decision, transferBed.id), reserve(decision, sameDorm.id)]);
     assert.equal(moving.filter(item => item.status === 'fulfilled').length, 1);
     await manage('RESERVE_CANCEL', { id: moving.find(item => item.status === 'fulfilled').value.id, reason: 'Выбрано другое место' });
+    if (contexts) {
+      const housing = await contexts.get(admin.id).newPage();
+      await housing.goto(base + '/admin/dormitory?dorm=' + campusB + '&tab=housing');
+      const reserveForm = housing.locator('form:has(input[name=dormAction][value=RESERVE])');
+      await reserveForm.locator('select[name=requestId]').selectOption(decision);
+      await reserveForm.locator('select[name=bedId]').selectOption(transferBed.id);
+      await reserveForm.getByLabel('Проживание до', { exact: true }).fill(dateText(day(180)));
+      await reserveForm.getByRole('button', { name: 'Зарезервировать', exact: true }).click();
+      await expect(housing.getByText('Операции с резервом', { exact: true })).toBeVisible();
+      const selected = await db.dormPlacement.findFirstOrThrow({ where: { bedId: transferBed.id, status: 'RESERVED' } });
+      assert.equal(selected.endsOn.toISOString().slice(0, 10), day(180));
+      await manage('RESERVE_CANCEL', { id: selected.id, reason: 'Проверена форма резервирования' });
+      await housing.close();
+    }
     const transfer = await place(decision, transferBed.id);
     assert.equal((await residentData(student)).resident.id, transfer);
     assert.equal((await residentData(student)).history.length, 2);
@@ -426,7 +461,19 @@ try {
     }
     await executeClearanceCommand(db, actor(dean), { operation: 'OPEN', requestId: randomUUID(), id: clearance.id, version: details.version });
     await manage('LOAN', { id: transfer, label: 'Ключ 101', isKey: 'on' });
-    await run(actor(student), 'DEPART', { id: transfer, reason: 'Окончание проживания', plannedOn: day(1) });
+    if (contexts) {
+      const departure = page.locator('#departure');
+      const requestedDay = departure.getByLabel('Предполагаемая дата выезда', { exact: true });
+      await requestedDay.fill(dateText(day(-1)));
+      await requestedDay.press('Enter');
+      await expect(requestedDay).toHaveAttribute('aria-invalid', 'true');
+      await requestedDay.fill(dateText(day(1)));
+      await departure.getByLabel('Причина', { exact: true }).fill('Окончание проживания');
+      await departure.getByRole('button', { name: 'Оформить выезд' }).click();
+      await expect(departure).toContainText(dateText(day(1)));
+      const stored = await db.dormDeparture.findUniqueOrThrow({ where: { placementId: transfer } });
+      assert.equal(stored.plannedOn.toISOString().slice(0, 10), day(1));
+    } else await run(actor(student), 'DEPART', { id: transfer, reason: 'Окончание проживания', plannedOn: day(1) });
     await assert.rejects(() => run(actor(student), 'CHECK_OUT', { id: transfer }), { status: 403 });
     await manage('INSPECT', { id: transfer, notes: 'Комната проверена' });
     await assert.rejects(() => manage('CHECK_OUT', { id: transfer, ackDebt: 'on' }), { status: 409 });
@@ -444,6 +491,33 @@ try {
     assert.equal(await db.dormBed.count({ where: { id: transferBed.id, ...openBed(new Date()) } }), 1);
     pass('Check-out inspection, key return, acknowledged debt, continued access to own documents and manual clearance');
     if (contexts) {
+      const manager = await contexts.get(admin.id).newPage();
+      const legacyStudent = await db.user.create({ data: {
+        name: 'Студент для сверки проживания', email: 'dormitory.legacy@example.test', role: 'STUDENT',
+        studentProfile: { create: { dormitory: 'Учебное общежитие B', dormitoryRoom: '101' } },
+      } });
+      await manager.goto(base + '/admin/dormitory?' + new URLSearchParams({ dorm: campusB, tab: 'housing', q: legacyStudent.name }));
+      const legacy = manager.locator('form:has(input[name=dormAction][value=LEGACY_MATCH])');
+      await legacy.locator('select[name=bedId]').selectOption(transferBed.id);
+      await legacy.getByLabel('Документ или основание проверки', { exact: true }).fill('Проверка даты при сверке проживания');
+      await legacy.getByLabel('Проживание до', { exact: true }).fill(dateText(day(180)));
+      await legacy.getByRole('button', { name: 'Сопоставить после проверки', exact: true }).click();
+      await expect(legacy).toHaveCount(0);
+      const matched = await db.dormPlacement.findFirstOrThrow({ where: { studentId: legacyStudent.id, bedId: transferBed.id, status: 'ACTIVE' } });
+      assert.equal(matched.endsOn.toISOString().slice(0, 10), day(180));
+      await manager.getByText('Выезд и выданное имущество', { exact: true }).click();
+      const employeeDeparture = manager.locator('form:has(input[name=dormAction][value=DEPART])');
+      const employeeDay = employeeDeparture.getByLabel('Дата выезда', { exact: true });
+      await employeeDay.fill(dateText(day(10)));
+      await employeeDay.press('ArrowDown');
+      await employeeDeparture.locator(`[data-date="${day(10)}"]`).click();
+      await employeeDeparture.getByLabel('Основание', { exact: true }).fill('Проверка даты выезда из кабинета сотрудника');
+      await employeeDeparture.getByRole('button', { name: 'Оформить выезд', exact: true }).click();
+      await expect(employeeDeparture).toHaveCount(0);
+      const matchedDeparture = await db.dormDeparture.findUniqueOrThrow({ where: { placementId: matched.id } });
+      assert.equal(matchedDeparture.plannedOn.toISOString().slice(0, 10), day(10));
+      await manager.close();
+      pass('Browser dates: prior placement reconciliation and staff move-out round-trip');
       const guest = await browser.newContext();
       assert.equal((await guest.request.get(base + '/api/dormitory?id=' + photo.id)).status(), 401);
       const wrongRole = await contexts.get(teacher.id).newPage();

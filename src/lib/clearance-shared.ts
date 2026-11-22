@@ -12,11 +12,12 @@ export function clearanceText(value: unknown, label: string, max = 2000, optiona
   return value.trim();
 }
 export function clearanceInt(value: unknown, min = 1, max = 2147483647) { if (!Number.isInteger(value) || Number(value) < min || Number(value) > max) throw new ClearanceError("Некорректное числовое значение."); return Number(value); }
+export const clearanceDateBounds = { min: "2000-01-01", max: "2100-12-31" };
 export function clearanceDate(value: unknown, optional = true): Date | null {
   if (optional && (value == null || value === "")) return null;
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new ClearanceError("Укажите дату в формате ГГГГ-ММ-ДД.");
   const date = new Date(value + "T00:00:00Z");
-  if (!Number.isFinite(+date) || date.toISOString().slice(0, 10) !== value || +date < +new Date("2000-01-01") || +date > +new Date("2100-12-31")) throw new ClearanceError("Некорректная дата.");
+  if (!Number.isFinite(+date) || date.toISOString().slice(0, 10) !== value || value < clearanceDateBounds.min || value > clearanceDateBounds.max) throw new ClearanceError("Некорректная дата.");
   return date;
 }
 const fields: Record<string, string[]> = {

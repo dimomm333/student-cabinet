@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./services.css";
+@import "./portfolio.css";
 @import "./materials.css";
 @import "./clearance.css";
 @import "./dashboard-home.css";
@@ -186,7 +187,7 @@ h1, h2, h3, p { margin: 0; }
 .schedule-filter-forms { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; }
 .schedule-filter-forms label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 9px; }
 .schedule-filter-forms form > div { display: flex; gap: 8px; }
-.schedule-filter-forms input:not([type=hidden]), .schedule-filter-forms select, .schedule-week-form input[type=date] { min-width: 0; width: 100%; border: 1px solid var(--border-subtle, #c9d4c2); background: var(--surface-paper, #fdfefb); color: var(--text-primary, #334d36); padding: 10px 12px; min-height: 44px; border-radius: 6px; font: inherit; font-size: 13px; }
+.schedule-filter-forms input:not([type=hidden]), .schedule-filter-forms select { min-width: 0; width: 100%; border: 1px solid var(--border-subtle, #c9d4c2); background: var(--surface-paper, #fdfefb); color: var(--text-primary, #334d36); padding: 10px 12px; min-height: 44px; border-radius: 6px; font: inherit; font-size: 13px; }
 .schedule-filter-forms .button { min-height: 44px; padding: 9px 15px; font-size: 12px; flex-shrink: 0; }
 .schedule-filter-forms button:disabled, .schedule-filter-forms select:disabled { opacity: .5; }
 .schedule-search-summary { font-size: 12px; line-height: 1.7; color: var(--text-secondary, #617153); margin-top: 10px; overflow-wrap: anywhere; }
@@ -234,7 +235,6 @@ h1, h2, h3, p { margin: 0; }
 .schedule-week-links a:hover { background: var(--surface-hover, #edf2e6); }
 .schedule-week-form { display: flex; align-items: center; gap: 10px; }
 .schedule-week-form label { font-size: 11px; color: var(--text-secondary, #75846c); white-space: nowrap; }
-.schedule-week-form input[type=date] { width: 157px; }
 .schedule-week-form .button { min-height: 44px; padding: 8px 13px; font-size: 11px; }
 .schedule-days { display: flex; gap: 7px; overflow-x: auto; padding: 2px 2px 10px; margin-bottom: 10px; }
 .schedule-days a { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 15px; border: 1px solid var(--border-subtle, #dee5d6); background: var(--surface); border-radius: 7px; color: var(--text-secondary, #6a7e60); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
@@ -320,7 +320,6 @@ h1, h2, h3, p { margin: 0; }
   .schedule-week-heading p > span { margin-inline: 4px; }
   .schedule-week-toolbar { align-items: flex-start; flex-direction: column; gap: 14px; }
   .schedule-week-form { width: 100%; gap: 8px; }
-  .schedule-week-form input[type=date] { flex: 1; width: 0; }
   .schedule-days a { padding-inline: 12px; gap: 6px; }
   .schedule-day-grid { grid-template-columns: 1fr; }
   .schedule-day-card > header { padding-inline: 17px; }
@@ -748,22 +747,41 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition: none !important; }
 }
-.schedule-date-picker { position: relative; width: 270px; max-width: 100%; }
-.schedule-date-input { display: flex; gap: 4px; margin-top: 6px; }
-.schedule-date-input input { flex: 1; }
-.schedule-date-input button, .schedule-calendar button { min-width: 40px; min-height: 40px; border: 1px solid var(--border-subtle, #b7c5ae); border-radius: 6px; background: var(--surface); color: var(--text-primary, #334d36); cursor: pointer; }
+.date-picker { min-width: 0; max-width: 100%; }
+.schedule-date-picker { width: 270px; }
+.dorm-date-field { flex: 1 1 11rem; min-width: min(100%, 9rem); }
+.schedule-date-input { display: flex; align-items: stretch; gap: 4px; margin-top: 6px; }
+.date-picker .schedule-date-input input[type=text] { width: 0; min-width: 0; flex: 1; min-height: 40px; margin: 0; }
+.date-picker .schedule-date-input button { display: inline-grid; place-items: center; min-width: 40px; min-height: 40px; padding: 0 4px; border: 1px solid var(--border-subtle, #b7c5ae); border-radius: 6px; background: var(--surface); color: var(--text-primary, #334d36); font: inherit; cursor: pointer; flex-shrink: 0; }
 .schedule-date-hint { display: block; font-size: 11px; margin-top: 4px; }
-.schedule-date-picker [aria-invalid=true] { border-color: var(--danger-border, #a52b22); }
-.schedule-date-picker:has([aria-invalid=true]) .schedule-date-hint { color: var(--danger-text, #a52b22); }
-.schedule-calendar { position: fixed; z-index: 20; width: 300px; max-width: calc(100vw - 36px); max-height: calc(100dvh - 16px); overflow-y: auto; padding: 10px; border: 1px solid var(--border-subtle, #b7c5ae); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow, #233b2926); overscroll-behavior: contain; touch-action: pan-y; }
-.schedule-calendar-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.schedule-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; text-align: center; }
-.schedule-calendar-grid button { min-width: 0; min-height: 40px; }
-.schedule-calendar-grid span { font-size: 12px; padding: 4px 0; }
+.schedule-date-hint:empty { display: none; }
+.date-picker .schedule-date-input input[aria-invalid=true] { border-color: var(--danger-border, #a52b22); }
+.date-picker:has([aria-invalid=true]) .schedule-date-hint { color: var(--danger-text, #a52b22); }
+.schedule-calendar { position: fixed; inset: auto; margin: 0; box-sizing: border-box; width: 292px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: hidden auto; padding: 0; outline: none; border: 1px solid var(--border-subtle, #b7c5ae); border-radius: 10px; background: var(--surface); color: var(--text-primary, #334d36); box-shadow: 0 8px 24px var(--shadow, #233b2926); font-size: 14px; overscroll-behavior: contain; overflow-anchor: none; touch-action: pan-y pinch-zoom; }
+:root .schedule-calendar::backdrop { background: transparent; pointer-events: none; }
+.schedule-calendar-content { padding: 6px 8px; }
+.schedule-calendar-heading { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; gap: 2px; align-items: center; text-align: center; margin-bottom: 2px; }
+.schedule-calendar-heading strong { font-weight: 650; }
+.date-picker .schedule-calendar button { display: inline-grid; place-items: center; min-width: 0; min-height: 34px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; text-decoration: none; cursor: pointer; }
+.date-picker .schedule-calendar-heading button { width: 30px; }
+.schedule-calendar-heading button[aria-label="Предыдущий месяц"] svg { transform: rotate(180deg); }
+.schedule-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; text-align: center; font-variant-numeric: tabular-nums; }
+.schedule-calendar-grid span { font-size: 11px; font-weight: 600; color: var(--text-secondary, #546754); padding: 3px 0; }
 .schedule-calendar-adjacent { opacity: .55; }
-.schedule-calendar button[aria-pressed=true] { background: var(--brand-solid, #334d36); color: var(--on-action, white); }
-.schedule-calendar button:disabled { opacity: .3; cursor: default; }
-.schedule-date-picker button:focus-visible, .schedule-date-picker input:focus-visible { outline: 2px solid var(--focus, #334d36); outline-offset: 2px; }
+.date-picker .schedule-calendar button:enabled:not([aria-pressed=true]):hover { background: var(--brand-soft, #e7ecdf); }
+.date-picker .schedule-calendar button[aria-current=date]:not([aria-pressed=true]) { box-shadow: inset 0 0 0 1px var(--brand-border, #739d82); color: var(--brand-text, #2f593a); }
+.date-picker .schedule-calendar button[aria-pressed=true] { background: var(--brand-solid, #334d36); color: var(--on-action, white); }
+.date-picker .schedule-calendar button[aria-current=date][aria-pressed=true] { box-shadow: inset 0 0 0 2px var(--on-action, white); }
+.date-picker .schedule-calendar button:disabled { opacity: .3; cursor: default; }
+.date-picker :is(button, input):focus-visible { outline: 2px solid var(--focus, #334d36); outline-offset: 2px; }
+.date-picker .schedule-calendar button:focus-visible { outline-offset: -3px; }
+.schedule-calendar-footer { display: flex; gap: 4px; justify-content: end; margin-top: 3px; }
+.date-picker .schedule-calendar-footer button { padding-inline: 10px; }
+.schedule-calendar[data-placement=bottom] { width: 360px; border-radius: 14px; }
+.schedule-calendar[data-placement=bottom] .schedule-calendar-content { padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+.date-picker .schedule-calendar[data-placement=bottom] button { min-height: 40px; }
+.date-picker .schedule-calendar[data-placement=bottom] .schedule-calendar-heading button { width: 37px; }
+@media (max-width: 640px) { .date-picker .schedule-date-input input[type=text] { font-size: 16px; } }
 .user-profile { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 20px; }
 .profile-panel { padding: 24px; min-width: 0; }
 .profile-panel h2 { font-size: 18px; margin-bottom: 20px; }
@@ -908,6 +926,21 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-facts dt { color: var(--text-secondary, #68796c); font-size: 12px; margin-bottom: 5px; }
 .brs-facts dd { margin: 0; font-size: 17px; font-weight: 600; }
 .brs-session { display: grid; gap: 18px; min-width: 0; }
+.brs-session-course { overflow-wrap: anywhere; }
+.brs-session-course > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 5px; border-radius: 4px; }
+.brs-session-summary { display: inline-grid; gap: 8px; vertical-align: middle; max-width: calc(100% - 24px); }
+.brs-session-summary > strong { font-size: 17px; }
+.brs-session-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--text-secondary); font-size: 13px; }
+.brs-session-meta > strong { color: var(--text-primary); }
+.brs-session-meta > .brs-badge { white-space: normal; }
+.brs-session-meta > time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.brs-session-content { border-top: 1px solid var(--border-subtle); margin-top: 14px; }
+.brs-session-content .brs-facts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 125px), 1fr)); }
+.brs-session-content h3 { margin: 0 0 8px; font-size: 15px; }
+.brs-session-content .brs-admission { margin: 14px 0; }
+.brs-session-attempts { display: grid; gap: 8px; padding: 0; list-style: none; }
+.brs-session-attempts li { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--surface-raised); }
+.brs-session-attempts small { color: var(--text-secondary); }
 .brs-admission { padding: 16px; border-left: 4px solid var(--brand-marker, #8bab89); background: var(--brand-soft, #f0f5ee); margin: 15px 0; }
 .brs-session-card > button { margin-top: 16px; }
 .brs-finalize { margin-top: 16px; display: grid; justify-items: start; gap: 8px; }
@@ -969,6 +1002,12 @@ body:has(.mobile-menu[open]) { overflow: hidden; }
 .brs-student-progress summary { border-left: 3px solid var(--border-subtle, #a7c1b3); padding: 3px 0 3px 10px; margin-bottom: 10px; }
 .brs-student-progress details:not([open]) summary { margin-bottom: 0; }
 .brs-student-progress summary .brs-course-heading { display: inline-block; vertical-align: middle; }
+.brs-student-progress .brs-progress-disclosure > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; list-style: none; min-height: 44px; }
+.brs-progress-disclosure > summary::-webkit-details-marker { display: none; }
+.brs-progress-disclosure > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.brs-disclosure-arrow { width: 9px; height: 9px; margin-inline: 5px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
+.brs-progress-disclosure[open] > summary .brs-disclosure-arrow { transform: rotate(225deg); }
+.brs-disclosure-outcome { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-secondary); font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
 .brs-student-progress .brs-full .brs-table th, .brs-student-progress .brs-full .brs-table td { padding: 8px; vertical-align: top; }
 .brs-student-progress .brs-full .brs-sticky { min-width: 175px; width: 175px; max-width: 175px; vertical-align: middle; }
 .brs-student-progress .brs-full .brs-course-heading { font-size: 15px; }

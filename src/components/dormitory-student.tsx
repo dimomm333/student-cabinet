@@ -139,7 +139,7 @@ export async function DormitoryStudent({ searchParams }: { searchParams: DormSea
           {data.lastDeparture && <p>{data.lastDeparture.completedAt ? `Выезд подтверждён ${dayLabel(data.lastDeparture.completedAt)}` : `Выезд запланирован на ${dayLabel(data.lastDeparture.plannedOn)} · ${data.lastDeparture.inspectedAt ? "Комната проверена" : "Комната ожидает проверки"}`}</p>}
           {data.lastDeparture?.notes && <p className="dorm-long">{data.lastDeparture.notes}</p>}
           {resident && !resident.departure && <Action action="DEPART" fields={{ id: resident.id }}>
-            <Field label="Предполагаемая дата выезда" name="plannedOn" type="date" />
+            <Field label="Предполагаемая дата выезда" name="plannedOn" type="date" fromToday />
             <Field label="Причина" name="reason" />
           </Action>}
           {!resident && !data.lastDeparture && <p>Процедур выезда пока нет.</p>}

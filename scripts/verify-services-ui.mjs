@@ -16,6 +16,7 @@ import { provisionTestDatabase } from './test-fixtures.mjs';
 import { seedServices } from '../src/lib/services-repository.ts';
 import { serviceCatalog } from '../src/lib/services-catalog.ts';
 import { verifyImagePreparation } from './services-image-checks.mjs';
+import { verifyTouchCalendar } from './calendar-touch-checks.mjs';
 import { navigationPdf, actionPdf } from './service-pdf-fixtures.mjs';
 
 mkdirSync('.local', { recursive: true });
@@ -65,6 +66,16 @@ try {
   await expect(page.locator('.services-appeal h2')).toHaveText('Обращение в деканат');
   await expect(page.locator('.services-appeal p').first()).toContainText('в свободной форме');
   await page.getByRole('tab', { name: 'Черновики', exact: true }).click(); await expect(page.locator('.services-empty')).toBeVisible();
+  for (const [label, parameter] of [['С даты', 'from'], ['По дату', 'to']]) {
+    const input = page.getByLabel(label, { exact: true });
+    const request = page.waitForRequest(r => new URL(r.url()).searchParams.get(parameter) === '2028-02-29');
+    await input.fill('29.02.2028');
+    await input.press('Enter');
+    await request;
+    await input.press('ArrowDown');
+    await page.getByRole('button', { name: 'Очистить', exact: true }).click();
+    await expect(input).toHaveValue('');
+  }
   await page.getByRole('tab', { name: 'Каталог услуг', exact: true }).click(); await expect(page.locator('.services-category')).toHaveCount(4); await expect(page.getByText('Загружаем каталог…', { exact: true })).toHaveCount(0);
   await noOverflow(page); await page.screenshot({ path: resolve(root, 'catalog-1366.png'), fullPage: true });
   await page.getByRole('searchbox', { name: 'Поиск услуг' }).fill('матпомощь');
@@ -125,13 +136,44 @@ try {
   for (const config of serviceCatalog) {
     await page.goto(base + '/dashboard/services?service=' + config.code); await page.getByRole('button', { name: 'Создать черновик' }).click(); await waitDetail(page);
     for (const f of config.fields) assert.equal(await page.getByLabel(new RegExp('^' + escaped(f.label))).first().count(), 1, config.code + '.' + f.key);
+    const dates = config.fields.filter(field => field.type === 'date');
+    if (dates.length) {
+      for (const date of dates) {
+        const input = page.getByLabel(date.label, { exact: true });
+        await expect(input).toHaveValue('');
+        await input.fill('29.02.2027');
+        await input.press('Enter');
+        await expect(input).toHaveAttribute('aria-invalid', 'true');
+        await input.fill('29.02.2028');
+        await input.press('ArrowDown');
+        await page.locator('.schedule-calendar [data-date="2028-02-29"]').click();
+      }
+      await saved(page);
+      const requestId = new URL(page.url()).searchParams.get('requestId');
+      const { fieldsJson } = await db.serviceRequest.findUniqueOrThrow({ where: { id: requestId } });
+      for (const date of dates) assert.equal(JSON.parse(fieldsJson)[date.key], '2028-02-29');
+      await page.reload(); await waitDetail(page);
+      for (const date of dates) await expect(page.getByLabel(date.label, { exact: true })).toHaveValue('29.02.2028');
+      if (config.code === 'study-call') {
+        const phone = await browser.newContext({ storageState: await page.context().storageState(),
+          viewport: { width: 360, height: 640 }, isMobile: true, hasTouch: true });
+        try {
+          const requestPage = await phone.newPage();
+          await requestPage.goto(page.url());
+          await waitDetail(requestPage);
+          const picker = requestPage.locator('.date-picker').filter({ has: requestPage.getByLabel(dates[0].label, { exact: true }) });
+          await verifyTouchCalendar(requestPage, picker);
+          await expect(picker.locator('input[type=text]')).toHaveValue('29.02.2028');
+        } finally { await phone.close(); }
+      }
+    }
     if (config.documents.some(slot => slot.photoOnly)) await expect(page.getByRole('button', { name: 'Прикрепить фотографии' })).toBeVisible();
     if (config.code === 'pass-reissue') {
       await page.getByLabel(/^Фотография/).selectOption('NEW'); await expect(page.getByLabel(/^Загрузить: Новая фотография/)).toBeVisible();
       await page.getByLabel(/^Фотография/).selectOption('KEEP'); await expect(page.getByLabel(/^Загрузить: Новая фотография/)).toHaveCount(0);
     }
   }
-  pass('All API-configured forms render their own fields; conditional pass photograph');
+  pass('All API-configured forms render their own fields, store and reopen leap dates; both date filters and conditional pass photograph');
   await page.goto(base + '/dashboard/services'); await expect(page.locator('.services-category')).toHaveCount(4);
   await expect(page.locator('.services-appeal textarea')).toHaveCount(0);
   const appealButton = page.getByRole('button', { name: 'Написать обращение в деканат', exact: true });

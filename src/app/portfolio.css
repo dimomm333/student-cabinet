@@ -1,0 +1,34 @@
+.portfolio-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.portfolio-heading h1 { font-size: clamp(24px, 4vw, 30px); line-height: 1.25; font-weight: 600; }
+.portfolio-heading p { margin-top: 4px; color: var(--text-secondary, var(--muted)); font-size: 13px; }
+.portfolio-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px; gap: 8px; margin-bottom: 18px; }
+.portfolio-stats div { padding: 2px 8px; }
+.portfolio-stats div + div { border-inline-start: 1px solid var(--line); }
+.portfolio-stats dt { color: var(--text-secondary, var(--muted)); font-size: 12px; }
+.portfolio-stats dd { margin-top: 4px; font-size: 20px; font-weight: 600; }
+.portfolio-grid, .portfolio-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.portfolio-card { display: flex; flex-direction: column; align-items: start; gap: 8px; padding: 16px; min-width: 0; overflow-wrap: anywhere; }
+.portfolio-card h2 { font-size: 17px; line-height: 1.35; }
+.portfolio-card .portfolio-actions { margin-top: auto; }
+.portfolio-card .button { padding: 8px 12px; }
+.portfolio-meta, .portfolio-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.portfolio-meta { font-size: 12px; color: var(--text-secondary, var(--muted)); }
+.portfolio-meta > * + *::before { content: "·"; margin-inline-end: 8px; }
+.portfolio-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.portfolio-detail { max-width: 800px; overflow-wrap: anywhere; }
+.portfolio-detail > :is(.portfolio-meta, .services-status, p) { margin-bottom: 10px; }
+.portfolio-fields .date-picker { margin-bottom: 17px; }
+.portfolio-fields .services-field { margin-bottom: 0; }
+.portfolio-fields .date-picker > label { display: block; font-size: 13px; font-weight: 550; margin-bottom: 7px; }
+.portfolio-files { display: grid; gap: 8px; list-style: none; padding: 0; }
+.portfolio-files li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.portfolio-files li > div { flex: 1 1 9rem; min-width: 0; font-size: 13px; }
+.portfolio-files li :is(strong, small) { display: block; overflow-wrap: anywhere; }
+.portfolio-files img { display: block; object-fit: cover; border-radius: 5px; background: var(--surface-soft); }
+.portfolio-files a, .portfolio-link { text-decoration: underline; text-underline-offset: 3px; color: var(--brand-text, var(--green-dark)); }
+.portfolio-dialog { position: fixed; inset: 0; width: min(440px, calc(100% - 32px)); margin: auto; color: var(--text-primary, var(--foreground)); background: var(--surface); border-color: var(--border-subtle, var(--line)); overflow-wrap: anywhere; }
+.portfolio-dialog::backdrop { background: #0008; }
+@media (max-width: 640px) {
+  .portfolio-grid, .portfolio-fields { grid-template-columns: minmax(0, 1fr); }
+  .portfolio .services-panel { padding: 16px; }
+}

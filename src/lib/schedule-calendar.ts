@@ -2,6 +2,7 @@ export const DAY_MS = 86_400_000;
 export const WEEK_MS = 7 * DAY_MS;
 export const dayNames = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
 export const shortDayNames = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+export const scheduleDateBounds = { min: "2000-01-01", max: "2099-12-31" };
 
 export function isoDate(date: Date): string { return date.toISOString().slice(0, 10); }
 
@@ -19,8 +20,11 @@ export function parseDateInput(value: string): Date | null {
 }
 
 export function shiftCalendarMonth(date: Date, offset: number): Date {
-  const month = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + offset, 1));
-  return new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), Math.min(date.getUTCDate(), new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 0)).getUTCDate())));
+  const result = new Date(date);
+  result.setUTCHours(0, 0, 0, 0);
+  result.setUTCMonth(date.getUTCMonth() + offset + 1, 0);
+  result.setUTCDate(Math.min(date.getUTCDate(), result.getUTCDate()));
+  return result;
 }
 
 export function mondayOf(date: Date): Date {

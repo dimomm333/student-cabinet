@@ -48,6 +48,7 @@
 .services-progress { font-size: 12px; color: var(--text-primary, #4e653e); margin-bottom: 12px; }
 .services-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 18px 0; }
 .services-filters label { flex: 1 1 130px; min-width: 0; font-size: 12px; }
+.services-filters > .date-picker { flex: 1 1 155px; }
 .services-filters label:has(select) { flex-basis: 175px; }
 .services-request-list { border-top: 1px solid var(--line); }
 .services-request-row { display: flex; gap: 16px; align-items: center; padding: 17px 0; border-bottom: 1px solid var(--line); }

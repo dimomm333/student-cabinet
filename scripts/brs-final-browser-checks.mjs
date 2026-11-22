@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {resolve} from 'node:path';
 import {expect} from '@playwright/test';
+import { verifyTouchCalendar } from './calendar-touch-checks.mjs';
 
 export async function verifyFinalForms({browser,tc,ac,pageFor,base,fixture,examPlanId,root,pass}) {
   const teacher=await pageFor(tc,'/teacher/grades?planId='+fixture.id);
@@ -39,28 +40,54 @@ export async function verifyFinalForms({browser,tc,ac,pageFor,base,fixture,examP
     const comment='Первая строка\nВторая строка\nhttps://example.test/'+ 'длинныйтекст'.repeat(45)+'\n<img src=x onerror="alert(1)">';
     await teacher.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await teacher.getByLabel('Баллы БРС',{exact:true}).fill('0.01');await teacher.getByRole('dialog').getByLabel('Комментарий (необязательно)',{exact:true}).fill(comment);await teacher.getByRole('checkbox',{name:'Показывать комментарий студенту и деканату'}).check();await confirm(teacher);await save(teacher);
     await student.locator('.desktop-sidebar').getByRole('link',{name:'Сессия',exact:true}).click();await expect(student.locator('main h1:visible')).toHaveText('Сессия');await expect(student).toHaveURL(new RegExp('planId='+fixture.id));
-    await expect(student.locator('.brs-workspace:visible')).toContainText('Действительный итог отсутствует');await expect(student.locator('.brs-workspace:visible')).not.toContainText('Исторический снимок');await expect(student.locator('.brs-workspace:visible')).not.toContainText('Зачёт');await expect(student.locator('.brs-workspace:visible').getByRole('heading',{name:'Задолженности',exact:true})).toBeVisible();
+    const sessionCard=student.locator(`.brs-session-course[data-plan="${fixture.id}"]`);
+    await expect(sessionCard.locator('summary')).toContainText('Итог требует повторной фиксации');
+    await expect(sessionCard.locator('summary')).not.toContainText('Итог: Зачёт');
+    await sessionCard.locator('summary').click();
+    await expect(sessionCard.getByText(/Действительный итог отсутствует/)).toBeVisible();
+    await expect(sessionCard).not.toContainText('Исторический снимок');
+    await expect(sessionCard.getByRole('heading',{name:'Задолженности',exact:true})).toBeVisible();
     const dto=await (await studentContext.request.get(base+'/api/brs?planId='+fixture.id)).json();assert(dto.selected.students[0].calculation.rating>=60);assert(!dto.selected.students[0].official.valid);assert.equal(dto.selected.students[0].official.grade,'Зачёт');
     await student.locator('.desktop-sidebar').getByRole('link',{name:'Успеваемость',exact:true}).click();await expect(student.locator('main h1:visible')).toHaveText('Успеваемость');await expect(student.locator('.brs-workspace:visible')).toContainText('Действительный итог отсутствует');
     const workRow=student.locator('.brs-compact tr[data-work="'+fixture.homeworkId+'"]');await expect(workRow).not.toContainText('Есть задолженность');await expect(student.locator('.brs-compact .brs-module-summary[data-academic="failed"]').first()).toContainText('Есть задолженность');
     const phone=await browser.newContext({storageState:{...(await studentContext.storageState()),origins:[]},viewport:{width:360,height:800},isMobile:true,hasTouch:true,reducedMotion:'reduce'});
     try {
       const page=await pageFor(phone,'/dashboard/grades?planId='+fixture.id);await expect(page.getByRole('button',{name:'Список',exact:true})).toHaveAttribute('aria-pressed','true');
+      await page.locator('.brs-course-list-section > summary').first().tap();
       await page.locator('tr[data-work="'+fixture.homeworkId+'"] td').last().tap();await expect(page.getByRole('dialog')).toBeVisible();await expect(page.locator('.brs-comment')).toContainText(comment);assert.equal(await page.getByRole('dialog').locator('img').count(),0);assert.equal(await page.locator('.brs-comment').evaluate(el=>getComputedStyle(el).whiteSpace),'pre-wrap');assert(await page.getByRole('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth),'Long comment overflow');
       await page.screenshot({path:resolve(root,'long-comment-360.png')});await page.keyboard.press('Escape');await page.locator('.brs-compact .brs-module-summary').first().tap();await expect(page.getByRole('dialog').getByRole('heading',{name:'Задолженности',exact:true})).toBeVisible();await page.screenshot({path:resolve(root,'module-debt-360.png')});await page.keyboard.press('Escape');await page.close();
     }finally{await phone.close();}
     await hw().click();await assertOptional(teacher);await teacher.getByRole('button',{name:'Удалить результат',exact:true}).click();await expect(teacher.getByRole('dialog')).not.toBeVisible();
     await hw().click();await assertOptional(teacher);await teacher.getByRole('button',{name:'Восстановить результат',exact:true}).click();await expect(teacher.getByRole('dialog')).not.toBeVisible();
     await hw().click();await teacher.getByLabel('Состояние сдачи',{exact:true}).selectOption('ON_TIME');await teacher.getByLabel('Баллы БРС',{exact:true}).fill('12');await teacher.getByRole('dialog').getByLabel('Комментарий (необязательно)',{exact:true}).fill('');await save(teacher);
-    const lab=teacher.locator('.brs-teacher-labs tbody tr').first().getByRole('button').first();await lab.click();await assertOptional(teacher);await teacher.keyboard.press('Escape');
+    const lab=teacher.locator('.brs-teacher-labs tbody tr').first().getByRole('button').first();await lab.click();await assertOptional(teacher);
+    const labDialog = teacher.locator('.brs-dialog');
+    const performed = labDialog.getByLabel('Дата выполнения', { exact: true });
+    await performed.fill('29.02.2028');
+    await performed.press('ArrowDown');
+    await labDialog.locator('[data-date="2028-02-29"]').click();
+    await labDialog.getByLabel('Дата защиты', { exact: true }).fill('01.03.2028');
+    await expect(labDialog.locator('input[name=performedOn]')).toHaveValue('2028-02-29');
+    await expect(labDialog.locator('input[name=defendedOn]')).toHaveValue('2028-03-01');
+    await teacher.keyboard.press('Escape');
+    const labPhone = await browser.newContext({ storageState: await tc.storageState(),
+      viewport: { width: 360, height: 640 }, isMobile: true, hasTouch: true });
+    try {
+      const labPage = await pageFor(labPhone, '/teacher/grades?planId=' + fixture.id);
+      await labPage.locator('.brs-teacher-labs tbody tr').first().getByRole('button').first().tap();
+      const dialog = labPage.locator('.brs-dialog');
+      const picker = dialog.locator('.date-picker').filter({ has: labPage.getByLabel('Дата выполнения', { exact: true }) });
+      await verifyTouchCalendar(labPage, picker);
+      await expect(dialog).toBeVisible();
+    } finally { await labPhone.close(); }
     await teacher.getByRole('button',{name:'Настроить работу: РК1',exact:true}).click();await assertOptional(teacher);await teacher.keyboard.press('Escape');
     await teacher.getByRole('button',{name:/^Посещаемость Александр/}).first().click();await assertOptional(teacher);await teacher.getByRole('dialog').getByRole('button',{name:'✓ — присутствовал',exact:true}).click();await expect(teacher.getByRole('dialog')).not.toBeVisible();
     await teacher.getByRole('button',{name:/^Посещаемость Александр/}).first().click();await assertOptional(teacher);await teacher.getByRole('dialog').getByRole('button',{name:'✓✓ — присутствовал и работал',exact:true}).click();await expect(teacher.getByRole('dialog')).not.toBeVisible();
     await teacher.locator('.brs-tabs').getByRole('link',{name:'Сессия',exact:true}).click();await expect(teacher.locator('main h1:visible')).toHaveText('Сессия');await teacher.locator('.brs-workspace:visible').getByRole('button',{name:'Зафиксировать итог',exact:true}).first().click();await expect(teacher.locator('.brs-workspace:visible')).toContainText('Изменения сохранены.');
     const current=await (await studentContext.request.get(base+'/api/brs?planId='+fixture.id)).json();assert(current.selected.students[0].official.valid);assert.equal(current.selected.students[0].official.grade,'Зачёт');
     await teacher.goto(base+'/teacher/session?planId='+examPlanId);await expect(teacher.locator('main h1:visible')).toHaveText('Сессия');
-    const examCard=teacher.locator('[data-student="'+current.selected.students[0].id+'"]');await examCard.getByRole('button',{name:'Добавить попытку',exact:true}).click();await assertOptional(teacher);await teacher.getByLabel('Баллы экзамена',{exact:true}).fill('21.5');await teacher.getByLabel('Фактическая дата экзамена',{exact:true}).fill('2027-04-26');await confirm(teacher);await save(teacher);
-    await examCard.getByRole('button',{name:'Исправить',exact:true}).last().click();await assertOptional(teacher);await teacher.getByLabel('Баллы экзамена',{exact:true}).fill('22');await confirm(teacher);await save(teacher);
+    const examCard=teacher.locator('[data-student="'+current.selected.students[0].id+'"]');await examCard.getByRole('button',{name:'Добавить попытку',exact:true}).click();await assertOptional(teacher);await teacher.getByLabel('Баллы экзамена',{exact:true}).fill('21.5');await teacher.getByLabel('Фактическая дата экзамена',{exact:true}).fill('26.04.2027');await confirm(teacher);await save(teacher);
+    await examCard.getByRole('button',{name:'Исправить',exact:true}).last().click();await assertOptional(teacher);await expect(teacher.getByLabel('Фактическая дата экзамена',{exact:true})).toHaveValue('26.04.2027');await teacher.getByLabel('Баллы экзамена',{exact:true}).fill('22');await confirm(teacher);await save(teacher);
     await examCard.getByRole('button',{name:'Исправить',exact:true}).last().click();await assertOptional(teacher);await teacher.getByRole('button',{name:'Удалить попытку',exact:true}).click();await expect(teacher.getByRole('dialog')).not.toBeVisible();await examCard.getByRole('button',{name:'Исправить',exact:true}).last().click();await teacher.getByRole('button',{name:'Восстановить попытку',exact:true}).click();await expect(teacher.getByRole('dialog')).not.toBeVisible();
     pass('Final forms: distinct RK/module sections, visible debt and invalid historical credit after a teacher edit without F5, sidebar context, active modes, multiline safe comments at 360px and optional teacher text without confirmations');
   }finally{await studentContext.close();await teacher.close();}

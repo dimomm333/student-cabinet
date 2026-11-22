@@ -392,6 +392,8 @@ enum Role {
 }
 
 model User {
+  portfolioAchievements PortfolioAchievement[]
+  portfolioDecisions PortfolioDecision[]
   dormGrants DormGrant[]
   dormPlacements DormPlacement[]
   dormRepairsCreated DormRepair[] @relation("DormRepairAuthor")
@@ -446,6 +448,79 @@ model User {
   materialFolders MaterialFolder[]
   materialAudits MaterialAudit[]
   materialReceipts MaterialReceipt[]
+}
+
+enum PortfolioCategory {
+  PROJECT
+  COMPETITION
+  SCIENCE
+  SPORT
+  VOLUNTEERING
+  OTHER
+}
+
+enum PortfolioStatus {
+  SELF_ADDED
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum PortfolioVerdict {
+  CONFIRMED
+  REJECTED
+}
+
+model PortfolioAchievement {
+  id           String            @id @default(cuid())
+  ownerId      String
+  owner        User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  title        String
+  category     PortfolioCategory
+  achievedOn   DateTime?
+  description  String?
+  result       String?
+  link         String?
+  award        Boolean           @default(false)
+  status       PortfolioStatus   @default(SELF_ADDED)
+  submittedAt  DateTime?
+  version      Int               @default(1)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  attachments  PortfolioAttachment[]
+  decisions    PortfolioDecision[]
+
+  @@index([ownerId, achievedOn])
+  @@index([ownerId, category, achievedOn])
+  @@index([status, submittedAt])
+}
+
+model PortfolioAttachment {
+  id             String               @id @default(cuid())
+  achievementId  String
+  achievement    PortfolioAchievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  storageKey     String               @unique
+  name           String
+  mime           String
+  size           Int
+  createdAt      DateTime             @default(now())
+
+  @@index([achievementId, createdAt])
+}
+
+model PortfolioDecision {
+  id             String               @id @default(cuid())
+  achievementId  String
+  achievement    PortfolioAchievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+  reviewerId     String?
+  reviewer       User?                @relation(fields: [reviewerId], references: [id], onDelete: SetNull)
+  version        Int
+  verdict        PortfolioVerdict
+  reason         String?
+  createdAt      DateTime             @default(now())
+
+  @@unique([achievementId, version])
+  @@index([reviewerId])
 }
 
 // Presentation preferences only; no academic records or notification settings.
