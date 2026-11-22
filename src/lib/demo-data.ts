@@ -3,6 +3,7 @@ import type { IconName } from "@/components/icon";
 export const sections: { slug: string; title: string; icon: IconName; description: string; group: string }[] = [
   { slug: "profile", title: "Профиль", icon: "user", description: "Личные данные студента и сведения об обучении.", group: "Учёба" },
   { slug: "schedule", title: "Моё расписание", icon: "calendar", description: "Занятия, аудитории и преподаватели.", group: "Учёба" },
+  { slug: "consultations", title: "Консультации", icon: "clock", description: "Расписание консультаций для вашей учебной группы.", group: "Учёба" },
   { slug: "session", title: "Сессия", icon: "book", description: "Допуски, экзаменационные попытки, предварительные и утверждённые результаты БРС.", group: "Учёба" },
   { slug: "grades", title: "Успеваемость", icon: "chart", description: "Модули, ДЗ, лабораторные, рубежные контроли, посещаемость и баллы.", group: "Учёба" },
   { slug: "materials", title: "Учебные материалы", icon: "folder", description: "Лекции, задания и опубликованные материалы ваших дисциплин.", group: "Учёба" },

@@ -691,6 +691,7 @@ model StudentOfficialPhoto {
 }
 
 model TeacherProfile {
+  consultations    Consultation[]
   userId           String          @id
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   department       String?
@@ -832,6 +833,7 @@ enum WeekPattern {
 }
 
 model StudyGroup {
+  consultationTargets ConsultationGroup[]
   materialTargets MaterialTarget[]
   id        String           @id @default(cuid())
   slug      String           @unique
@@ -910,6 +912,7 @@ model UsefulEntry {
 }
 
 model Discipline {
+  consultations Consultation[]
   materials LearningMaterial[]
   materialFolders MaterialFolder[]
   id        String   @id @default(cuid())
@@ -931,6 +934,7 @@ model Building {
 }
 
 model Room {
+  consultations Consultation[]
   id         String          @id @default(cuid())
   buildingId String
   building   Building        @relation(fields: [buildingId], references: [id], onDelete: Restrict)
@@ -1288,6 +1292,38 @@ model ScheduleException {
 model ScheduleWriteState {
   id String @id
   revision Int @default(0)
+}
+
+// Calendar date at UTC midnight, with time expressed in Moscow local minutes.
+model Consultation {
+  id           String              @id @default(cuid())
+  teacherId    String
+  teacher      TeacherProfile      @relation(fields: [teacherId], references: [userId], onDelete: Restrict)
+  disciplineId String
+  discipline   Discipline          @relation(fields: [disciplineId], references: [id], onDelete: Restrict)
+  roomId       String
+  room         Room                @relation(fields: [roomId], references: [id], onDelete: Restrict)
+  date         DateTime
+  startMinute  Int
+  endMinute    Int
+  groups       ConsultationGroup[]
+  cancelledAt  DateTime?
+  version      Int                 @default(1)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@index([teacherId, date])
+  @@index([roomId, date])
+}
+
+model ConsultationGroup {
+  consultationId String
+  groupId        String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  group          StudyGroup   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@id([consultationId, groupId])
+  @@index([groupId])
 }
 
 model ScheduleAudit {

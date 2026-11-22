@@ -15,9 +15,11 @@ import { provisionTestDatabase } from "./test-fixtures.mjs";
 import { verifyStudentProfile } from "./student-profile-checks.mjs";
 import { verifyProfileSettings } from "./profile-settings-checks.mjs";
 import { verifyUseful } from "./useful-checks.mjs";
+import { verifyConsultations } from "./consultation-checks.mjs";
 
 const observe = process.argv.includes("--observe"), production = process.argv.includes("--production");
 const usefulOnly = process.argv.includes("--useful");
+const consultationsOnly = process.argv.includes("--consultations");
 mkdirSync(".local", { recursive: true });
 const root = mkdtempSync(resolve(".local/cabinet-navigation-")), project = resolve(root, "project");
 const source = createClient({ url: getDatabaseUrl() });
@@ -66,8 +68,24 @@ async function availablePort() {
 const port = process.env.CABINET_TEST_PORT ?? await availablePort();
 const base = `http://127.0.0.1:${port}`, results = [], diagnostics = [], browserErrors = [];
 let logs = "", browser;
-const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", production ? "start" : "dev", production ? resolve(".") : project, "--hostname", "127.0.0.1", "--port", port], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, NODE_ENV: production ? "production" : "development", NEXT_TELEMETRY_DISABLED: "1", BETTER_AUTH_URL: base, BETTER_AUTH_SECRET: randomBytes(48).toString("base64url"), AUTH_TRUST_PROXY: "false", AUTH_PROXY_SECRET: "" } });
-child.stdout.on("data", data => { logs += data; }); child.stderr.on("data", data => { logs += data; });
+const serverEnv = { ...process.env, NODE_ENV: production ? "production" : "development", NEXT_TELEMETRY_DISABLED: "1", BETTER_AUTH_URL: base, BETTER_AUTH_SECRET: randomBytes(48).toString("base64url"), AUTH_TRUST_PROXY: "false", AUTH_PROXY_SECRET: "" };
+let child;
+async function startServer() {
+  child = spawn(process.execPath, ["node_modules/next/dist/bin/next", production ? "start" : "dev", production ? resolve(".") : project, "--hostname", "127.0.0.1", "--port", port], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: serverEnv });
+  child.stdout.on("data", data => { logs += data; }); child.stderr.on("data", data => { logs += data; });
+  for (let n = 0; n < 80; n++) {
+    assert(child.exitCode === null, "Isolated navigation server exited; see private server.log");
+    try { if ((await fetch(base + "/api/auth/get-session", { signal: AbortSignal.timeout(10000) })).ok) return; } catch { /* compilation */ }
+    await new Promise(done => setTimeout(done, 250));
+  }
+  assert.fail("Isolated navigation server unavailable");
+}
+async function restartServer() {
+  const closed = new Promise(done => child.once("close", done));
+  child.kill();
+  await closed;
+  await startServer();
+}
 const warningPattern = /Next\.js encountered|unstable value|uncached data during|blocking-prerender|Blocking Route|Instant validation/;
 function pass(name, evidence = {}) { results.push({ name, ...evidence }); console.info(`PASS: ${name} ${JSON.stringify(evidence)}`); }
 async function verifySectionSwitches(page, role) {
@@ -269,14 +287,8 @@ async function verifyProfile(page, context, actor, home) {
   pass(`${actor.role}: profile links and ownership`, { avatar: true, menu: true, mobile: true, realDatabaseFields: true, missingFields: actor.role !== 'ADMIN', spoofedOwnerIgnored: true, readOnly: true });
 }
 try {
-  let ready = false;
-  for (let n = 0; n < 80; n++) {
-    assert(child.exitCode===null,'Isolated navigation server exited; see private server.log');
-    try { if ((await fetch(base + "/api/auth/get-session", { signal: AbortSignal.timeout(10000) })).ok) { ready = true; break; } } catch { /* compilation */ }
-    await new Promise(done => setTimeout(done, 250));
-  }
-  assert(ready, "Isolated navigation server unavailable");
-  if (!production && !usefulOnly) {
+  await startServer();
+  if (!production && !usefulOnly && !consultationsOnly) {
     const started=performance.now();
     const response=await fetch(base+'/dashboard/profile',{redirect:'manual',signal:AbortSignal.timeout(120000)});
     // Streaming HTML can carry the redirect, so verify the full response too.
@@ -287,6 +299,8 @@ try {
   browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL ?? "chrome", headless: true });
   if (usefulOnly) {
     await verifyUseful({ browser, db, base, password, root, settle, pass, diagnostics, browserErrors, warningPattern });
+  } else if (consultationsOnly) {
+    await verifyConsultations({ browser, db, base, password, root, pass, restartServer, diagnostics, browserErrors, warningPattern });
   } else {
     const anonymous = await browser.newContext();
     const anonymousPage = await anonymous.newPage();
@@ -296,7 +310,7 @@ try {
     await anonymous.close();
     pass('Anonymous profiles', { denied: Object.keys(homes).length });
   }
-  const actors = usefulOnly ? [] : demoAccounts.filter(a => a.email !== "maria.volkova@example.test");
+  const actors = usefulOnly || consultationsOnly ? [] : demoAccounts.filter(a => a.email !== "maria.volkova@example.test");
   for (const actor of actors) {
     if (process.argv.includes("--student-only") && actor.role !== "STUDENT") continue;
     const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, reducedMotion: "reduce" });
@@ -380,7 +394,7 @@ try {
   }
   pass("Navigation diagnostics", { mode: production ? "production" : "development", observe, browserWarnings: diagnostics.length, browserErrors: browserErrors.length, sourceUnchanged: true });
 } finally {
-  await browser?.close(); child.kill(); await db.$disconnect(); source.close();
+  await browser?.close(); child?.kill(); await db.$disconnect(); source.close();
   writeFileSync(resolve(root, "server.log"), logs.replaceAll(password, "[REDACTED]"), { mode: 0o600 });
   writeFileSync(resolve(root, "results.json"), JSON.stringify({ results, diagnostics, browserErrors }, null, 2));
   console.info(`Navigation report: ${root.replaceAll("\\", "/")}/results.json`);
